@@ -43,8 +43,9 @@ export function assertTransferAdapter(adapter: object) {
 
 /** Ephemeral signing-capable SDK adapter: stays private to this module and is ONLY used for estimate.
  * Never persist its key or return this adapter to a bridge/retry caller. */
-export async function estimateWithoutWallet(input: { from: ChainDefinition; to: ChainDefinition; amount: string; token: string; fast: boolean; relayer: boolean; recipient?: string }) {
+export async function estimateWithoutWallet(input: { from: ChainDefinition; to: ChainDefinition; amount: string; token: string; fast: boolean; relayer: boolean; recipient?: string | undefined }) {
   if (import.meta.env.SSR || typeof window === "undefined") throw new Error("browser-only");
+  if (input.from.type !== "evm") throw new Error("Estimate adapter requires an EVM source");
   if (!estimateAdapterPromise) {
     estimateAdapterPromise = (async () => {
       await import("./polyfills");
