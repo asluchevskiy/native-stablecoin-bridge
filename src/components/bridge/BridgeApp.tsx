@@ -515,12 +515,12 @@ export function BridgeApp() {
     <div className="flex min-h-screen flex-col">
       {/* Header */}
       <header>
-        <div className="mx-auto flex max-w-[880px] flex-wrap items-center gap-x-4 gap-y-3 px-4 py-5">
+        <div className="mx-auto flex max-w-[912px] flex-wrap items-center gap-x-3 gap-y-3 px-4 py-5">
           <div className="flex items-center gap-2.5">
             <BrandMark />
             <h1 className="font-display text-lg font-semibold tracking-tight">{t("appName")}</h1>
           </div>
-          <div className="ml-auto flex flex-wrap items-center gap-2">
+          <div className="ml-auto flex flex-wrap items-center gap-1.5">
             <Seg label={t("network")} value={network} options={[["mainnet", t("mainnet")], ["testnet", t("testnet")]]} disabled={running}
               onChange={(v) => { if (!running) { setNetwork(v); setPhase({ kind: "form" }); } }} />
             <Seg label={t("language")} value={lang} options={[["en", "EN"], ["ru", "RU"]]} onChange={(v) => setLang(v)} />
@@ -562,7 +562,7 @@ export function BridgeApp() {
       <main className="mx-auto w-full max-w-[880px] flex-1 px-4 pb-10 pt-2">
         <div className="grid gap-5 min-[960px]:grid-cols-[480px_minmax(0,1fr)] min-[960px]:items-start">
           {/* SLIP */}
-          <section className="rounded-[20px] bg-sheet p-5 shadow-slip sm:p-6">
+          <section className="min-w-0 rounded-[20px] bg-sheet p-5 shadow-slip sm:p-6">
             <RouteStrip from={stripFrom} to={stripTo} progress={stripProgress} active={running}
               error={phase.kind === "failed" && !phase.rejected} />
             <div className="mt-2 flex justify-between text-sm text-ink-2">
@@ -601,7 +601,7 @@ export function BridgeApp() {
             ) : sdkState === "error" ? (
               <div className="pt-6 text-sm text-err">{t("sdkError")} {sdkErr}</div>
             ) : (
-              <fieldset disabled={phase.kind !== "form"} className="mt-5 space-y-5 disabled:opacity-60">
+              <fieldset disabled={phase.kind !== "form"} className="mt-5 min-w-0 space-y-5 disabled:opacity-60">
                 {token === "EURC" && eurc.status === "loading" ? (
                   <div className="flex items-center gap-2 text-sm text-ink-2"><Loader2 className="size-4 animate-spin" />{t("eurcChecking")}</div>
                 ) : null}
@@ -714,7 +714,7 @@ export function BridgeApp() {
           </section>
 
           {/* RECEIPT */}
-          <aside className="rounded-[20px] border border-rule bg-sheet p-5 sm:p-6" aria-label={t("receipt")} aria-live="polite">
+          <aside className="min-w-0 rounded-[20px] border border-rule bg-sheet p-5 sm:p-6" aria-label={t("receipt")} aria-live="polite">
             {phase.kind === "form" ? (
               <>
                 <ReceiptRow k={t("youSend")} v={amount && Number(amount) > 0 ? `${fmt(amount)} ${token}` : `0 ${token}`} strong />
