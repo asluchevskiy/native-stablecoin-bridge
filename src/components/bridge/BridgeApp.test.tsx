@@ -29,6 +29,8 @@ vi.mock("@/lib/sdk", () => ({
   loadSdk: async () => ({ kit: fixtures.kit, sdk: {} }),
   makeEvmAdapter: async () => fixtures.adapter,
   makeSolanaAdapter: async () => fixtures.adapter,
+  assertTransferAdapter: vi.fn(),
+  estimateWithoutWallet: vi.fn(async () => ({ gasFees: [], fees: [{ type: "forwarder", token: "USDC", amount: "0.1" }] })),
   errMsg: async (e: Error) => e.message,
   isUserRejection: () => false,
 }));
@@ -57,6 +59,7 @@ beforeEach(() => {
   localStorage.clear();
   fixtures.handlers.clear(); fixtures.transfers.length = 0;
   fixtures.kit.bridge.mockClear(); fixtures.kit.retry.mockClear();
+  fixtures.kit.estimate.mockClear();
   fixtures.provider.request.mockReset();
   fixtures.provider.request.mockImplementation(async ({ method }: { method: string }) => method === "eth_accounts" || method === "eth_requestAccounts" ? ["0x1111111111111111111111111111111111111111"] : null);
   localStorage.setItem("nsb.wallet.evm", "test.wallet");
