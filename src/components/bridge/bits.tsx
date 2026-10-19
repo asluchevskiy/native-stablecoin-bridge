@@ -42,7 +42,7 @@ export function ChainField({
       <button
         type="button"
         onClick={() => { setQ(""); setOpen(true); }}
-        className="group flex w-full items-center gap-3 rounded-[12px] border border-rule bg-sheet px-3 py-2.5 text-left transition-colors hover:border-ink-2/40"
+        className="group flex w-full items-center gap-3 rounded-[12px] border border-rule bg-sheet px-3 py-2.5 text-left text-ink transition-colors hover:border-ink-2/40"
       >
         <span className="w-12 shrink-0 text-sm font-medium text-ink-2">{label}</span>
         {value ? <ChainMark chain={value} size={28} /> : null}
@@ -78,7 +78,7 @@ export function ChainField({
                     type="button"
                     aria-disabled={!!reason}
                     onClick={() => { if (reason) return; onChange(c); setOpen(false); }}
-                    className={`flex w-full items-center gap-2.5 rounded-[12px] border px-2.5 py-2.5 text-left text-sm transition-colors ${
+                    className={`flex w-full items-center gap-2.5 rounded-[12px] border bg-sheet px-2.5 py-2.5 text-left text-sm text-ink transition-colors ${
                       selected ? "border-primary" : "border-transparent hover:bg-tint"
                     } ${reason ? "cursor-not-allowed opacity-40" : ""}`}
                   >
@@ -139,7 +139,7 @@ export function Seg<T extends string>({
           disabled={disabled}
           onClick={() => onChange(v)}
           className={`inline-flex items-center gap-1.5 rounded-[8px] px-2.5 py-1 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-            value === v ? "bg-tint text-ink ring-1 ring-primary/40" : "text-ink-2 hover:text-ink"
+            value === v ? "bg-primary/12 text-ink ring-1 ring-primary/50" : "bg-transparent text-ink-2 hover:text-ink"
           }`}
         >
           {node}
@@ -158,14 +158,15 @@ export function routeProgress(steps: Step[], token: string, done: boolean) {
 }
 
 export function RouteStrip({
-  from, to, progress, active, error,
-}: { from?: ChainDefinition | undefined; to?: ChainDefinition | undefined; progress: number; active: boolean; error?: boolean }) {
+  from, to, progress, active, error, label,
+}: { from?: ChainDefinition | undefined; to?: ChainDefinition | undefined; progress: number; active: boolean; error?: boolean; label?: string }) {
   return (
     <div className="flex items-center gap-3" aria-hidden>
       <div className="flex min-w-0 flex-col items-center gap-1.5">
         {from ? <ChainMark chain={from} size={44} /> : <span className="size-11 rounded-full bg-tint" />}
       </div>
-      <div className="relative h-[3px] flex-1 overflow-hidden rounded-full bg-rule">
+      <div className="relative flex flex-1 items-center">
+      <div className="relative h-[3px] w-full overflow-hidden rounded-full bg-primary/25">
         <div
           className={`route-fill absolute inset-0 rounded-full ${error ? "bg-err" : "bg-primary"}`}
           style={{ transform: `scaleX(${progress})` }}
@@ -173,6 +174,12 @@ export function RouteStrip({
         {active ? (
           <div className="route-pulse absolute top-0 h-full w-6 rounded-full bg-primary" style={{ left: `calc(${progress * 100}% - 12px)` }} />
         ) : null}
+      </div>
+      {label ? (
+        <span className="num absolute left-1/2 -translate-x-1/2 whitespace-nowrap rounded-[8px] border border-rule bg-sheet px-2 py-0.5 text-xs font-semibold text-ink">
+          {label}
+        </span>
+      ) : null}
       </div>
       <div className="flex min-w-0 flex-col items-center gap-1.5">
         {to ? <ChainMark chain={to} size={44} /> : <span className="size-11 rounded-full bg-tint" />}

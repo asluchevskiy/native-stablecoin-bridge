@@ -80,7 +80,7 @@
 }
 :root[data-token="eurc"] { --primary: var(--eurc); }
 
-.dark {
+html.dark {
   --paper: #0f1520;
   --sheet: #161e2b;
   --ink: #e8edf4;
