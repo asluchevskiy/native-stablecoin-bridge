@@ -1,4 +1,9 @@
 # Mainnet transfer fixes
+## EURC totals
+- [ ] Force EURC forwarding and preserve USDC relayer preference.
+- [ ] Add cached RPC gas fallback, allowance checks, estimated row notes and USD totals in receipt/confirmation.
+- [ ] Add and run tests, check automatic production validation and both wallet-free browser routes.
+
 - [x] Normalize and persist EURC events, transaction hashes and attestation data.
 - [x] Show expected steps with stable durations and real route progress.
 - [x] Isolate concurrent transfers by trace ID and keep background rows live.
