@@ -7,3 +7,9 @@
 - [x] Refresh balances after completion; verify tests and desktop/mobile browser states.
 - [x] Check automatic production validation signal (manual build commands are prohibited by the environment).
 - [ ] Real wallet/mainnet execution check — blocked by absence of a wallet extension and user-authorized funds.
+
+## Usage fixes
+- [ ] History menus, protected removal, five-second Undo and clear completed.
+- [ ] Neutral unknown status for saved transfers that cannot resume.
+- [ ] Wallet-independent estimates, isolated estimate adapter and public USDC fee fallback.
+- [ ] Route-specific arrival text; tests, browser checks and automatic build validation.
