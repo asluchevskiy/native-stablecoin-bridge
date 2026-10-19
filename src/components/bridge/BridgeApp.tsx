@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { BridgeKit, BridgeParams, BridgeResult, ChainDefinition, EstimateResult } from "@circle-fin/bridge-kit";
-import { ArrowDownUp, ChevronDown, Copy, ExternalLink, Info, Loader2, LogOut, Moon, Settings2, Sun, TriangleAlert, Wallet } from "lucide-react";
+import { ArrowDownUp, ChevronDown, Copy, ExternalLink, Info, Loader2, LogOut, Moon, MoreHorizontal, Settings2, Sun, TriangleAlert, Wallet } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -14,11 +15,11 @@ import {
   type Balances, type Token,
 } from "@/lib/chains";
 import { discoverEvmWallets, getSolanaWallet, rememberWallet, rememberedWallet, type Eip1193, type EvmWalletInfo, type SolProvider } from "@/lib/wallets";
-import { errMsg, isUserRejection, loadSdk, makeEvmAdapter, makeSolanaAdapter } from "@/lib/sdk";
-import { loadHistory, saveHistory, type HistoryEntry } from "@/lib/history";
+import { assertTransferAdapter, estimateWithoutWallet, errMsg, isUserRejection, loadSdk, makeEvmAdapter, makeSolanaAdapter } from "@/lib/sdk";
+import { cannotResume, destinationTransaction, explorerAddress, isUnsupportedRetry, loadHistory, removalPolicy, removeEntries, restoreEntries, saveHistory, sourceTransaction, type HistoryEntry } from "@/lib/history";
 import { displaySteps, mergeTransferSteps, normalizeStepEvent, receivedAmount, sourceComplete, transferProgress, updateStepTimings } from "@/lib/transfers";
 import { spotPrice, usdCost } from "@/lib/prices";
-import { estimateCosts } from "@/lib/fees";
+import { arrivalKind, estimateCosts, fetchPublicFeeEstimate, validEstimateAmount } from "@/lib/fees";
 
 type Network = "mainnet" | "testnet";
 type Adapter = Awaited<ReturnType<typeof makeEvmAdapter>> | Awaited<ReturnType<typeof makeSolanaAdapter>>;
@@ -76,12 +77,13 @@ export function BridgeApp() {
   const [balances, setBalances] = useState<{ data?: Balances | undefined; loading: boolean; error?: string | undefined }>({ loading: false });
   const [eurc, setEurc] = useState<{ status: "idle" | "loading" | "ready" | "error"; pairs: Set<string>; error?: string }>({ status: "idle", pairs: new Set() });
   const [eurcNonce, setEurcNonce] = useState(0);
-  const [est, setEst] = useState<{ data?: Est | undefined; loading: boolean; error?: string | undefined }>({ loading: false });
+  const [est, setEst] = useState<{ data?: Est | undefined; loading: boolean; error?: string | undefined; withoutWallet?: boolean }>({ loading: false });
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [checked, setChecked] = useState(false);
   const [phase, setPhase] = useState<Phase>({ kind: "form" });
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [balNonce, setBalNonce] = useState(0);
+  const [removeCandidate, setRemoveCandidate] = useState<HistoryEntry | null>(null);
 
   const historyRef = useRef<HistoryEntry[]>([]);
   const activeIds = useRef(new Set<string>());
@@ -234,25 +236,45 @@ export function BridgeApp() {
     } as unknown as BridgeParams;
   }, [from, to, srcAdapter, destAdapter, showRecipientInput, recipient, useRelayer, amount, token, fast]);
 
-  // Debounced estimate
+  // Estimation validity deliberately excludes balance and wallet availability.
+  const estimateValid = !!from && !!to && from.chain !== to.chain && !!tokenAddress(from, token) && !!tokenAddress(to, token)
+    && (token !== "EURC" || eurc.pairs.has(pairKey(from, to))) && validEstimateAmount(amount)
+    && (!recipient || isValidRecipient(to, recipient)) && (!custom || !!recipient)
+    && (L(to).type !== "solana" || !!recipient);
   useEffect(() => {
-    if (validation || !srcAdapter) { setEst({ loading: false }); return; }
-    const params = buildParams();
-    if (!params) return;
+    if (!estimateValid || !from || !to) { setEst({ loading: false }); return; }
     let off = false;
-    setEst((s) => ({ ...s, loading: true, error: undefined }));
+    setEst({ loading: true });
     const timer = setTimeout(async () => {
-      try {
-        const { kit } = await loadSdk();
-        const data = (await kit.estimate(params)) as Est;
-        if (!off) setEst({ loading: false, data });
-      } catch (e) {
-        const m = await errMsg(e);
-        if (!off) setEst({ loading: false, error: m });
+      let lastError: unknown = new Error(t("connectToEstimate"));
+      const params = buildParams();
+      if (srcAdapter && params && (useRelayer || destAdapter)) {
+        try {
+          const { kit } = await loadSdk();
+          const data = await kit.estimate(params) as Est;
+          if (!off) setEst({ loading: false, data, withoutWallet: false });
+          return;
+        } catch (e) { lastError = e; }
       }
+      if (L(from).type === "evm") {
+        try {
+          const data = await estimateWithoutWallet({ from, to, amount, token, fast, relayer: useRelayer, recipient: recipient || undefined }) as Est;
+          if (!off) setEst({ loading: false, data, withoutWallet: true });
+          return;
+        } catch (e) { lastError = e; }
+      }
+      if (token === "USDC") {
+        try {
+          const data = await fetchPublicFeeEstimate(from, to, amount, fast, useRelayer, network === "testnet");
+          if (!off) setEst({ loading: false, data, withoutWallet: true });
+          return;
+        } catch (e) { lastError = e; }
+      }
+      const message = await errMsg(lastError);
+      if (!off) setEst({ loading: false, error: message });
     }, 600);
     return () => { off = true; clearTimeout(timer); };
-  }, [validation, srcAdapter, buildParams]);
+  }, [estimateValid, from, to, srcAdapter, destAdapter, buildParams, amount, token, fast, useRelayer, recipient, network]);
 
   // Wallet actions
   const evmListeners = useRef<{ provider: Eip1193; accounts: (...a: unknown[]) => void; chain: (...a: unknown[]) => void } | null>(null);
@@ -349,6 +371,27 @@ export function BridgeApp() {
     setHistory(historyRef.current);
   };
 
+  function commitHistory(next: HistoryEntry[]) {
+    historyRef.current = next;
+    saveHistory(next);
+    setHistory(next);
+  }
+  function removeWithUndo(ids: Set<string>) {
+    const safeIds = new Set([...ids].filter((id) => !activeIds.current.has(id)));
+    const { remaining, removed } = removeEntries(historyRef.current, safeIds);
+    if (!removed.length) return;
+    commitHistory(remaining);
+    const expires = Date.now() + 5000;
+    toast(t("removedHistory"), { duration: 5000, action: { label: t("undo"), onClick: () => {
+      if (Date.now() <= expires) commitHistory(restoreEntries(historyRef.current, removed));
+    } } });
+  }
+  function requestRemoval(entry: HistoryEntry) {
+    const policy = removalPolicy(entry, activeIds.current.has(entry.id));
+    if (policy === "confirm") setRemoveCandidate(entry);
+    else if (policy === "immediate") removeWithUndo(new Set([entry.id]));
+  }
+
   async function run(
     exec: (kit: BridgeKit) => Promise<Result>,
     ctx: { entryId: string; base: Result; network: Network; createdAt: number; fresh: boolean },
@@ -360,7 +403,7 @@ export function BridgeApp() {
     setConfirmOpen(false);
     let live: Result = { ...ctx.base, state: "pending", steps: ctx.base.steps.map((step) => step.state === "error" ? { ...step, state: "pending" } : { ...step }) };
     let timings = updateStepTimings(live, historyRef.current.find((e) => e.id === ctx.entryId)?.timings ?? {}, Date.now());
-    const persist = () => upsertHistory({ id: ctx.entryId, network: ctx.network, createdAt: ctx.createdAt, result: live, timings });
+    const persist = () => upsertHistory({ id: ctx.entryId, network: ctx.network, createdAt: ctx.createdAt, result: live, timings, ...(historyRef.current.find((h) => h.id === ctx.entryId)?.resumeUnsupported ? { resumeUnsupported: true } : {}) });
     persist();
     const source = ctx.base.source.chain;
     const destination = ctx.base.destination.chain;
@@ -393,6 +436,11 @@ export function BridgeApp() {
         }
       }
     } catch (e) {
+      if (!ctx.fresh && isUnsupportedRetry(e)) {
+        upsertHistory({ id: ctx.entryId, network: ctx.network, createdAt: ctx.createdAt, result: live, timings, resumeUnsupported: true });
+        if (focusedId.current === ctx.entryId) { focusedId.current = null; setPhase({ kind: "form" }); }
+        return;
+      }
       const rejected = isUserRejection(e);
       const anyTx = live.steps.some((s) => !!s.txHash);
       const message = rejected ? t("rejected") : await errMsg(e);
@@ -413,7 +461,9 @@ export function BridgeApp() {
 
   async function startBridge() {
     const params = buildParams();
-    if (!params || !from || !to || !srcAddress) return;
+    if (!params || !from || !to || !srcAddress || !srcAdapter) return;
+    assertTransferAdapter(srcAdapter);
+    if (destAdapter) assertTransferAdapter(destAdapter);
     const base = {
       state: "pending",
       provider: token === "USDC" ? "CCTPV2BridgingProvider" : "CCTPXBridgingProvider",
@@ -438,7 +488,7 @@ export function BridgeApp() {
   }
 
   async function retryResult(result: Result, entryId: string | null, createdAt?: number, net: Network = network) {
-    if (entryId && activeIds.current.has(entryId)) return;
+    if (entryId && (activeIds.current.has(entryId) || historyRef.current.some((h) => h.id === entryId && cannotResume(h)))) return;
     const traceId = entryId ?? crypto.randomUUID();
     const srcType = L(result.source.chain).type;
     const dstType = L(result.destination.chain).type;
@@ -446,6 +496,8 @@ export function BridgeApp() {
     const toA = dstType === "solana" ? (sol ? solAdapter.current : null) : (evm ? evmAdapter.current : null);
     const needsTo = !result.destination.useForwarder;
     if (!fromA || (needsTo && !toA)) { setWalletErr(t("resumeNeedsWallet")); return; }
+    assertTransferAdapter(fromA);
+    if (toA) assertTransferAdapter(toA);
     await run(async (kit) => {
       if (srcType === "evm" && evm) {
         const pending = result.steps.some((s) => ["approve", "approveFee", "burn", "transfer"].includes(s.name) && s.state !== "success");
@@ -835,7 +887,7 @@ export function BridgeApp() {
               <>
                 <ReceiptRow k={t("youSend")} v={amount && Number(amount) > 0 ? `${fmt(amount)} ${token}` : `0 ${token}`} strong />
                 <div className="mt-3 min-h-[100px] space-y-2.5">
-                  {!srcAdapter || validation ? (
+                  {!estimateValid ? (
                     <>
                       {fast ? <ReceiptRow k={t("protocolFee")} v={<span className="skeleton inline-block h-3.5 w-14 align-middle opacity-70" />} /> : null}
                       {useRelayer ? <ReceiptRow k={t("relayFee")} v={<span className="skeleton inline-block h-3.5 w-14 align-middle opacity-70" />} /> : null}
@@ -849,20 +901,21 @@ export function BridgeApp() {
                   ) : est.data ? (
                     <>
                       {renderCosts()}
+                      {est.withoutWallet ? <p className="text-xs text-ink-2">{t("estimateWithoutWallet")}</p> : null}
                     </>
                   ) : null}
                 </div>
                 <div className="tear my-4" aria-hidden />
                 <div className="flex items-baseline justify-between gap-3">
-                  <span className="text-sm font-medium">{t("youReceive")}</span>
+                  <span className="text-sm font-medium">{!srcAdapter || validation === "errBalance" ? t("wouldReceive") : t("youReceive")}</span>
                   <span className="num font-display text-xl font-semibold">
-                    {est.loading ? <span className="skeleton inline-block h-6 w-24 align-middle" /> : est.data && !validation ? `≈ ${fmt(receive)}` : "—"}
+                    {est.loading ? <span className="skeleton inline-block h-6 w-24 align-middle" /> : est.data ? `≈ ${fmt(receive)}` : "—"}
                     <span className="ml-1.5 text-base text-ink-2">{token}</span>
                   </span>
                 </div>
                 <div className="mt-1 flex justify-between text-sm text-ink-2">
                   <span>{t("arrivesIn")}</span>
-                  <span>{fast ? t("arrivalFast") : t("arrivalStandard")}</span>
+                  <span className="ml-1">{t(arrivalKind(from, fast))}</span>
                 </div>
                 <PrimaryButton className="mt-6" disabled={!ctaEnabled} onClick={onCta}>{ctaLabel}</PrimaryButton>
               </>
@@ -919,7 +972,10 @@ export function BridgeApp() {
 
         {/* History */}
         <section className="mt-10">
-          <h2 className="font-display text-lg font-semibold">{t("history")}</h2>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="font-display text-lg font-semibold">{t("history")}</h2>
+            {history.some((h) => h.result.state === "success" && !runningIds.has(h.id)) ? <Button variant="ghost" size="sm" className="text-ink-2" onClick={() => removeWithUndo(new Set(historyRef.current.filter((h) => h.result.state === "success").map((h) => h.id)))}>{t("clearCompleted")}</Button> : null}
+          </div>
           {history.length === 0 ? (
             <p className="mt-3 text-sm text-ink-2">{t("noHistory")}</p>
           ) : (
@@ -930,7 +986,13 @@ export function BridgeApp() {
                 const liveInTab = runningIds.has(h.id);
                 const currentStep = displaySteps(r, h.timings).find((s) => !s.future && s.state === "pending");
                 const inProgress = st === "pending" && r.steps.some((s) => (s.name === "burn" || s.name === "transfer") && !!s.txHash);
-                const tone = st === "success" ? "text-ok bg-ok/10" : st === "error" ? "text-err bg-err/10" : "text-warn bg-warn/10";
+                const unknown = !liveInTab && cannotResume(h);
+                const sourceTx = sourceTransaction(r);
+                const destTx = destinationTransaction(r);
+                const sourceUrl = sourceTx ? explorerFor({ from: r.source.chain, to: r.destination.chain })(sourceTx) : undefined;
+                const destUrl = destTx ? explorerFor({ from: r.source.chain, to: r.destination.chain })(destTx) : undefined;
+                const addressUrl = explorerAddress(h);
+                const tone = unknown ? "text-ink-2 bg-tint" : st === "success" ? "text-ok bg-ok/10" : st === "error" ? "text-err bg-err/10" : "text-warn bg-warn/10";
                 return (
                   <li key={h.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
                     <div className="flex items-center -space-x-2">
@@ -945,7 +1007,7 @@ export function BridgeApp() {
                       </div>
                     </div>
                     <span className={`rounded-[8px] px-2 py-0.5 text-xs font-medium ${tone}`}>
-                      {liveInTab ? <span className="inline-flex items-center gap-1.5"><Loader2 className="size-3 motion-safe:animate-spin" />{currentStep ? stepLabel(t, currentStep.name) : t("progress")}</span> : inProgress ? t("status_inprogress") : t(`status_${st}` as TKey)}
+                      {liveInTab ? <span className="inline-flex items-center gap-1.5"><Loader2 className="size-3 motion-safe:animate-spin" />{currentStep ? stepLabel(t, currentStep.name) : t("progress")}</span> : unknown ? t("status_unknown") : inProgress ? t("status_inprogress") : t(`status_${st}` as TKey)}
                     </span>
                     <div className="flex items-center">
                       {r.steps.filter((s) => s.txHash).map((s, i) => {
@@ -958,11 +1020,24 @@ export function BridgeApp() {
                         ) : null;
                       })}
                     </div>
-                    {st !== "success" && !liveInTab ? (
+                    {st !== "success" && !liveInTab && !unknown ? (
                       <Button size="sm" variant="outline" className="rounded-[8px] border-rule bg-sheet text-ink hover:bg-tint" onClick={() => retryResult(r, h.id, h.createdAt, h.network)}>
                         {t("resume")}
                       </Button>
                     ) : null}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" aria-label={`${t("more")}: ${fmt(r.amount)} ${r.token}`} className="size-8 text-ink-2"><MoreHorizontal className="size-4" /></Button></DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="border-rule bg-sheet text-ink">
+                        {sourceUrl ? <DropdownMenuItem asChild><a href={sourceUrl} target="_blank" rel="noreferrer">{t("viewSource")}</a></DropdownMenuItem> : null}
+                        {destUrl ? <DropdownMenuItem asChild><a href={destUrl} target="_blank" rel="noreferrer">{t("viewDestination")}</a></DropdownMenuItem> : null}
+                        <DropdownMenuItem disabled={liveInTab} onSelect={() => requestRemoval(h)} className="text-err focus:text-err">{t("removeHistory")}</DropdownMenuItem>
+                        {liveInTab ? <div className="px-2 pb-2 text-xs text-ink-2">{t("progress")}</div> : null}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                    {unknown ? <div className="w-full text-sm text-ink-2">
+                      <p>{fill(t("unknownTransfer"), { token: r.token, destination: L(r.destination.chain).name })}</p>
+                      {addressUrl ? <a href={addressUrl} target="_blank" rel="noreferrer" className="mt-1 inline-flex text-primary underline">{fill(t("checkDestination"), { destination: L(r.destination.chain).name })}</a> : null}
+                    </div> : null}
                   </li>
                 );
               })}
@@ -980,6 +1055,17 @@ export function BridgeApp() {
           </p>
         </div>
       </footer>
+
+      <Dialog open={!!removeCandidate} onOpenChange={(open) => { if (!open) setRemoveCandidate(null); }}>
+        <DialogContent className="rounded-[20px] border-rule bg-sheet text-ink">
+          <DialogHeader><DialogTitle>{t("removeTitle")}</DialogTitle><DialogDescription className="text-ink-2">{t("removeWarning")}</DialogDescription></DialogHeader>
+          {removeCandidate && sourceTransaction(removeCandidate.result) ? <a href={explorerTx(removeCandidate.result.source.chain, sourceTransaction(removeCandidate.result)?.txHash)} target="_blank" rel="noreferrer" className="text-sm text-primary underline">{t("viewSource")}</a> : null}
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" autoFocus onClick={() => setRemoveCandidate(null)}>{t("keep")}</Button>
+            <Button variant="destructive" disabled={!!removeCandidate && runningIds.has(removeCandidate.id)} onClick={() => { if (removeCandidate) removeWithUndo(new Set([removeCandidate.id])); setRemoveCandidate(null); }}>{t("remove")}</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Confirm */}
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
