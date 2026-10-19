@@ -54,3 +54,12 @@ it("gives route-specific short arrival estimates", () => {
   expect(arrivalKind(chain("Ethereum_Sepolia"), false)).toBe("arrivalStandard");
   expect(arrivalKind(chain("Base"), false)).toBe("arrivalOther");
 });
+it("preserves live SDK human-readable gas fees instead of dividing them a second time", () => {
+  const estimate = { gasFees: [
+    { blockchain: "Ethereum", fees: { fee: "0.0000114778302975" } },
+    { blockchain: "Ethereum", fees: { fee: "0.000038259434325" } },
+  ], fees: [] } as unknown as EstimateResult<string, string>;
+  expect(estimateCosts(estimate, chain("Ethereum"), chain("Base"), "USDC", true)[0]?.amount).toBeCloseTo(0.0000497372646225, 15);
+  estimate.gasFees.push({ blockchain: "Ethereum", fees: null } as unknown as typeof estimate.gasFees[number]);
+  expect(estimateCosts(estimate, chain("Ethereum"), chain("Base"), "USDC", true)[0]?.amount).toBeUndefined();
+});

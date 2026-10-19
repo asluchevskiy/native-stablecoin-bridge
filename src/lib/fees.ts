@@ -43,9 +43,10 @@ export function estimateCosts(estimate: EstimateResult<string, string> | undefin
   const costs: CostLine[] = [];
   for (const chain of [source, ...(!relayer ? [destination] : [])]) {
     const gas = estimate?.gasFees.filter((g) => String(g.blockchain) === L(chain).chain);
-    const known = gas?.filter((g) => g.fees);
+    const known = gas?.filter((g) => g.fees && Number.isFinite(Number(g.fees.fee)));
     costs.push({ kind: "gas", chain: L(chain).name, symbol: L(chain).nativeCurrency.symbol,
-      ...(known?.length ? { amount: known.reduce((sum, g) => sum + Number(g.fees?.fee ?? 0) / 10 ** L(chain).nativeCurrency.decimals, 0) } : {}) });
+      // Bridge Kit's live estimate returns fee in human-readable native-token units.
+      ...(known?.length && known.length === gas?.length ? { amount: known.reduce((sum, g) => sum + Number(g.fees?.fee), 0) } : {}) });
   }
   const quote = estimate?.quote as { totalAmount?: string; items?: { type: string; amount: string }[] } | undefined;
   for (const fee of estimate?.fees ?? []) {

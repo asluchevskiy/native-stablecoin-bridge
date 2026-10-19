@@ -892,7 +892,7 @@ export function BridgeApp() {
                       {fast ? <ReceiptRow k={t("protocolFee")} v={<span className="skeleton inline-block h-3.5 w-14 align-middle opacity-70" />} /> : null}
                       {useRelayer ? <ReceiptRow k={t("relayFee")} v={<span className="skeleton inline-block h-3.5 w-14 align-middle opacity-70" />} /> : null}
                       <ReceiptRow k={fill(t("networkGas"), { chain: from ? L(from).name : "" })} v={<span className="skeleton inline-block h-3.5 w-16 align-middle opacity-70" />} />
-                      <p className="pt-1 text-xs text-ink-2">{!srcAdapter ? t("connectToEstimate") : t("estimateHint")}</p>
+                      <p className="pt-1 text-xs text-ink-2">{t("estimateHint")}</p>
                     </>
                   ) : est.loading ? (
                     <><SkelRow /><SkelRow /><SkelRow /></>
@@ -908,7 +908,7 @@ export function BridgeApp() {
                 <div className="tear my-4" aria-hidden />
                 <div className="flex items-baseline justify-between gap-3">
                   <span className="text-sm font-medium">{!srcAdapter || validation === "errBalance" ? t("wouldReceive") : t("youReceive")}</span>
-                  <span className="num font-display text-xl font-semibold">
+                  <span className="num flex shrink-0 flex-wrap items-baseline justify-end gap-x-1.5 font-display text-xl font-semibold">
                     {est.loading ? <span className="skeleton inline-block h-6 w-24 align-middle" /> : est.data ? `≈ ${fmt(receive)}` : "—"}
                     <span className="ml-1.5 text-base text-ink-2">{token}</span>
                   </span>
