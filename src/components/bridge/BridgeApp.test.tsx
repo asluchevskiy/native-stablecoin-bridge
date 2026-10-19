@@ -9,7 +9,7 @@ import type { Result } from "@/lib/transfers";
 const fixtures = vi.hoisted(() => {
   const chain = (name: string, id: number) => ({ chain: name, name, type: "evm", chainId: id, nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 }, explorerUrl: `https://${name.toLowerCase()}.example/tx/{hash}`, rpcEndpoints: ["https://rpc.example"], usdcAddress: "0x0000000000000000000000000000000000000001", eurcAddress: "0x0000000000000000000000000000000000000002", cctpx: {}, cctp: { forwarderSupported: { destination: true } } });
   const handlers = new Set<(payload: unknown) => void>();
-  const transfers: { params: any; resolve: (r: any) => void }[] = [];
+  const transfers: { params: any; resolve: (r: any) => void; reject: (e: Error) => void }[] = [];
   const provider = { request: vi.fn(), on: vi.fn(), removeListener: vi.fn() };
   const adapter = {};
   const kit = {
@@ -18,8 +18,8 @@ const fixtures = vi.hoisted(() => {
     estimate: vi.fn().mockResolvedValue({ gasFees: [], fees: [{ type: "provider", token: "ETH", amount: "0.002" }], quote: { totalAmount: "2000", items: [{ type: "FORWARD", amount: "2000" }] } }),
     on: (_: string, h: (p: unknown) => void) => handlers.add(h),
     off: (_: string, h: (p: unknown) => void) => handlers.delete(h),
-    bridge: vi.fn((params: any) => new Promise((resolve) => transfers.push({ params, resolve }))),
-    retry: vi.fn((result: any, _ctx: any, meta: any) => new Promise((resolve) => transfers.push({ params: { ...result, invocationMeta: meta }, resolve }))),
+    bridge: vi.fn((params: any) => new Promise((resolve, reject) => transfers.push({ params, resolve, reject }))),
+    retry: vi.fn((result: any, _ctx: any, meta: any) => new Promise((resolve, reject) => transfers.push({ params: { ...result, invocationMeta: meta }, resolve, reject }))),
   };
   return { kit, handlers, transfers, provider, adapter };
 });
@@ -88,7 +88,10 @@ describe("transfer session", () => {
     await act(async () => { fixtures.transfers[0]?.resolve(final); });
     expect(loadHistory().find((h) => h.id === first.id)?.result.state).toBe("success");
     expect(screen.getByText("Completed")).toBeInTheDocument();
-    expect(screen.getByText("50 EURC", { selector: "span" })).toBeInTheDocument();
+    expect(loadHistory().find((h) => h.id === second.id)?.result.state).toBe("pending");
+    const receipt = screen.getByLabelText("Receipt");
+    expect(within(receipt).getByText("50 EURC")).toBeInTheDocument();
+    expect(within(receipt).queryByText("Transfer complete")).not.toBeInTheDocument();
   });
   it("resumes saved EURC via retry with the existing entry trace ID", async () => {
     const [source, destination] = fixtures.kit.getSupportedChains();
@@ -102,5 +105,26 @@ describe("transfer session", () => {
     expect(fixtures.kit.bridge).not.toHaveBeenCalled();
     emit("saved", "fetchAttestation", { status: "complete", attestation: "0xresumed" });
     expect(loadHistory()[0]?.result.steps.find((s) => s.name === "fetchAttestation")?.data).toBe("0xresumed");
+  });
+  it("keeps hard-error transfer hashes retryable, and removes failures before any transaction", async () => {
+    mount();
+    await waitFor(() => expect(screen.getByLabelText(/Test wallet/)).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("radio", { name: "EURC" }));
+    await confirm("100");
+    const first = pending();
+    if (!first) throw new Error("No entry");
+    emit(first.id, "transfer", { transactionHash: "0xretained" });
+    await act(async () => { fixtures.transfers[0]?.reject(new Error("Polling unavailable")); });
+    expect(loadHistory().find((h) => h.id === first.id)?.result.steps).toMatchObject([{ name: "transfer", state: "success", txHash: "0xretained" }]);
+    fireEvent.click(screen.getByRole("button", { name: "Retry", exact: undefined }));
+    await waitFor(() => expect(fixtures.kit.retry).toHaveBeenCalled());
+    expect(fixtures.kit.bridge).toHaveBeenCalledTimes(1);
+    await act(async () => { fixtures.transfers[1]?.resolve({ ...first.result, state: "success" }); });
+    fireEvent.click(screen.getByRole("button", { name: "Bridge again" }));
+    await confirm("50");
+    const failed = loadHistory().find((h) => h.id !== first.id);
+    if (!failed) throw new Error("No new entry");
+    await act(async () => { fixtures.transfers[2]?.reject(new Error("Validation failed")); });
+    expect(loadHistory().find((h) => h.id === failed.id)).toBeUndefined();
   });
 });
