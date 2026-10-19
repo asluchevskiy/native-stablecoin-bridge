@@ -9,10 +9,6 @@ export function validEstimateAmount(amount: string): boolean {
   return /^\d+(?:\.\d{0,6})?$|^\.\d{1,6}$/.test(amount) && Number.isFinite(Number(amount)) && Number(amount) > 0;
 }
 
-export function arrivalKind(source: ChainDefinition | undefined, fast: boolean): "arrivalFast" | "arrivalStandard" | "arrivalOther" {
-  return fast ? "arrivalFast" : source && /^Ethereum(?:_|$)/.test(L(source).chain) ? "arrivalStandard" : "arrivalOther";
-}
-
 export function publicFeeEstimate(tiers: FeeTier[], amount: string, fast: boolean, relayer: boolean): EstimateResult<string, string> {
   const tier = tiers.find((t) => Number(t.finalityThreshold) === (fast ? 1000 : 2000));
   if (!tier || !validEstimateAmount(amount) || !Number.isFinite(Number(tier.minimumFee)) || Number(tier.minimumFee) < 0) throw new Error("Fee tier unavailable");

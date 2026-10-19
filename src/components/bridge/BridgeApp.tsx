@@ -9,9 +9,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { BrandMark, ChainField, ChainMark, CopyButton, RouteStrip, Seg, StepTracker, type Step } from "./bits";
-import { fill, useT, stepLabel, type TKey } from "@/lib/i18n";
+import { fill, formatArrival, useT, stepLabel, type TKey } from "@/lib/i18n";
+import { languageLocale } from "@/lib/languages";
+import { arrivalInfo, hasSpeedDowngrade } from "@/lib/arrival";
 import {
-  L, explorerTx, fetchBalances, fmt, forwarderDest, isValidRecipient, nativeIsUsdc, shortAddr, tokenAddress,
+  L, explorerTx, fetchBalances, fmt as formatNumber, forwarderDest, isValidRecipient, nativeIsUsdc, shortAddr, tokenAddress,
   type Balances, type Token,
 } from "@/lib/chains";
 import { discoverEvmWallets, getSolanaWallet, rememberWallet, rememberedWallet, type Eip1193, type EvmWalletInfo, type SolProvider } from "@/lib/wallets";
@@ -19,7 +21,7 @@ import { assertTransferAdapter, estimateWithoutWallet, errMsg, isUserRejection, 
 import { cannotResume, destinationTransaction, explorerAddress, isUnsupportedRetry, loadHistory, removalPolicy, removeEntries, restoreEntries, saveHistory, sourceTransaction, type HistoryEntry } from "@/lib/history";
 import { displaySteps, mergeTransferSteps, normalizeStepEvent, receivedAmount, sourceComplete, transferProgress, updateStepTimings } from "@/lib/transfers";
 import { spotPrice, usdCost } from "@/lib/prices";
-import { arrivalKind, estimateCosts, fetchPublicFeeEstimate, validEstimateAmount } from "@/lib/fees";
+import { estimateCosts, fetchPublicFeeEstimate, validEstimateAmount } from "@/lib/fees";
 
 type Network = "mainnet" | "testnet";
 type Adapter = Awaited<ReturnType<typeof makeEvmAdapter>> | Awaited<ReturnType<typeof makeSolanaAdapter>>;
@@ -56,6 +58,8 @@ async function ensureEvmChain(provider: Eip1193, c: ChainDefinition) {
 
 export function BridgeApp() {
   const { t, lang, setLang } = useT();
+  const locale = languageLocale(lang);
+  const fmt = (value: Parameters<typeof formatNumber>[0], max = 6) => formatNumber(value, max, locale);
   const [network, setNetwork] = useState<Network>("mainnet");
   const [token, setToken] = useState<Token>("USDC");
   const [chains, setChains] = useState<ChainDefinition[]>([]);
@@ -532,7 +536,7 @@ export function BridgeApp() {
     const timer = setInterval(() => void refresh(), 60_000);
     return () => { off = true; clearInterval(timer); };
   }, [priceSymbols]);
-  const usdFormat = (value: number) => new Intl.NumberFormat(lang === "ru" ? "ru-RU" : "en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
+  const usdFormat = (value: number) => new Intl.NumberFormat(locale, { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
   const costValue = (value: number | undefined, symbol: string) => {
     if (value === undefined) return "—";
     const usd = usdCost(value, symbol, prices);
@@ -555,7 +559,8 @@ export function BridgeApp() {
   const walletsLocked = runningIds.size > 0;
   const foregroundResult = phase.kind === "running" ? phase.result : undefined;
   const foregroundTimings = history.find((h) => h.id === (phase.kind === "running" ? phase.entryId : null))?.timings;
-  const attestationHint = (r: Result) => /^Ethereum/.test(L(r.source.chain).chain) ? t("waitingFinality") : t("waitingFinalityOther");
+  const arrivalText = (id: string | undefined, isFast: boolean) => formatArrival(arrivalInfo(id, isFast).time, lang, t);
+  const attestationHint = (r: Result) => fill(t("waitingFinalityTime"), { time: arrivalText(L(r.source.chain).chain, r.config?.transferSpeed === "FAST") });
   const canBridge = !validation && !!srcAdapter && !!est.data && !est.loading && phase.kind === "form";
   const tokenIsNativeGas = !!from && nativeIsUsdc(from) && token === "USDC";
   const noGas = !!srcAddress && !!balances.data && Number(balances.data.native) === 0;
@@ -612,7 +617,12 @@ export function BridgeApp() {
     : phase.kind === "failed" && phase.result ? transferProgress(phase.result)
     : 0;
 
-  const locale = lang === "ru" ? "ru-RU" : "en-US";
+  const timing = arrivalInfo(fromId, fast);
+  const receiptResult = phase.kind === "form" ? est.data : phase.result;
+  const warningSource = phase.kind !== "form" && phase.result ? phase.result.source.chain : from;
+  const downgradeNotice = hasSpeedDowngrade(receiptResult)
+    ? fill(t(arrivalInfo(warningSource?.chain, true).standardAlreadyFast ? "standardAlreadyFast" : "speedDowngraded"), { chain: warningSource ? L(warningSource).name : "" })
+    : phase.kind === "form" && fast && timing.standardAlreadyFast ? fill(t("standardAlreadyFast"), { chain: from ? L(from).name : "" }) : undefined;
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -638,7 +648,7 @@ export function BridgeApp() {
                   <Seg label={t("network")} value={network} options={[["mainnet", t("mainnet")], ["testnet", t("testnet")]]} disabled={running}
                     onChange={(v) => { if (!running) { setNetwork(v); setPhase({ kind: "form" }); } }} /></div>
                 <div className="flex items-center justify-between gap-2"><span className="text-sm text-ink-2">{t("language")}</span>
-                  <Seg label={t("language")} value={lang} options={[["en", "EN"], ["ru", "RU"]]} onChange={(v) => setLang(v)} /></div>
+                  <Seg label={t("language")} value={lang} options={[["en", "EN"], ["ru", "RU"], ["uk", "UA"]]} onChange={(v) => setLang(v)} /></div>
                 <div className="flex items-center justify-between gap-2"><span className="text-sm text-ink-2">{t("theme")}</span>
                   <button type="button" onClick={toggleTheme} aria-label={t("theme")}
                     className="inline-flex size-9 items-center justify-center rounded-[10px] border border-rule bg-sheet text-ink-2 hover:text-ink">
@@ -689,7 +699,7 @@ export function BridgeApp() {
           <div className="ml-auto flex flex-wrap items-center gap-1.5">
             <Seg label={t("network")} value={network} options={[["mainnet", t("mainnet")], ["testnet", t("testnet")]]} disabled={running}
               onChange={(v) => { if (!running) { setNetwork(v); setPhase({ kind: "form" }); } }} />
-            <Seg label={t("language")} value={lang} options={[["en", "EN"], ["ru", "RU"]]} onChange={(v) => setLang(v)} />
+            <Seg label={t("language")} value={lang} options={[["en", "EN"], ["ru", "RU"], ["uk", "UA"]]} onChange={(v) => setLang(v)} />
             <button type="button" onClick={toggleTheme} aria-label={t("theme")} title={t("theme")}
               className="inline-flex size-9 items-center justify-center rounded-[10px] border border-rule bg-sheet text-ink-2 hover:text-ink">
               {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
@@ -859,13 +869,15 @@ export function BridgeApp() {
                   <span className="text-sm font-medium">{t("speed")}</span>
                   <div className="mt-2 grid grid-cols-2 gap-2" role="radiogroup" aria-label={t("speed")}>
                     {[true, false].map((f) => (
-                      <button key={String(f)} type="button" role="radio" aria-checked={fast === f} onClick={() => setFast(f)}
-                        className={`flex h-full flex-col items-start justify-start rounded-[12px] border bg-sheet px-3 py-2.5 text-left text-ink transition-colors ${fast === f ? "border-primary ring-1 ring-primary" : "border-rule hover:border-ink-2/40"}`}>
+                      <Button key={String(f)} variant="outline" type="button" role="radio" aria-checked={fast === f} onClick={() => setFast(f)}
+                        className={`flex h-full flex-col items-start justify-start gap-0 whitespace-normal rounded-[12px] border bg-sheet px-3 py-2.5 text-left text-ink transition-colors ${fast === f ? "border-primary ring-1 ring-primary" : "border-rule hover:border-ink-2/40"}`}>
                         <div className="text-sm font-semibold">{f ? t("fast") : t("standard")}</div>
+                        <div className="num mt-0.5 text-xs text-ink-2">{arrivalText(fromId, f)}</div>
                         <div className="mt-0.5 text-xs leading-snug text-ink-2">{f ? t("fastDesc") : t("standardDesc")}</div>
-                      </button>
+                      </Button>
                     ))}
                   </div>
+                  {timing.longStandard ? <p className="mt-2 text-xs text-warn">{t("longStandard")}</p> : null}
                 </div>
 
                 {/* Relayer */}
@@ -883,6 +895,7 @@ export function BridgeApp() {
 
           {/* RECEIPT */}
           <aside className="min-w-0 rounded-[20px] min-[960px]:sticky min-[960px]:top-6 border border-rule bg-sheet p-5 sm:p-6" aria-label={t("receipt")} aria-live="polite">
+            {downgradeNotice ? <p className="mb-3 text-xs text-warn">{downgradeNotice}</p> : null}
             {phase.kind === "form" ? (
               <>
                 <ReceiptRow k={t("youSend")} v={amount && Number(amount) > 0 ? `${fmt(amount)} ${token}` : `0 ${token}`} strong />
@@ -915,8 +928,9 @@ export function BridgeApp() {
                 </div>
                 <div className="mt-1 flex justify-between text-sm text-ink-2">
                   <span>{t("arrivesIn")}</span>
-                  <span className="ml-1">{t(arrivalKind(from, fast))}</span>
+                  <span className="ml-1">{arrivalText(fromId, hasSpeedDowngrade(est.data) ? false : fast)}</span>
                 </div>
+                <p className="mt-1 text-xs text-ink-2">{t("mintAddsSeconds")}</p>
                 <PrimaryButton className="mt-6" disabled={!ctaEnabled} onClick={onCta}>{ctaLabel}</PrimaryButton>
               </>
             ) : phase.kind === "running" ? (
@@ -1002,7 +1016,7 @@ export function BridgeApp() {
                     <div className="min-w-0 flex-1">
                       <div className="num text-base font-semibold">{fmt(r.amount)} {r.token}</div>
                       <div className="truncate text-sm text-ink-2">
-                        {L(r.source.chain).name} {lang === "ru" ? "в" : "to"} {L(r.destination.chain).name}
+                        {L(r.source.chain).name} {t("routeTo")} {L(r.destination.chain).name}
                         <span className="num ml-2">{new Date(h.createdAt).toLocaleString(locale, { dateStyle: "short", timeStyle: "short" })}</span>
                       </div>
                     </div>
@@ -1034,6 +1048,7 @@ export function BridgeApp() {
                         {liveInTab ? <div className="px-2 pb-2 text-xs text-ink-2">{t("progress")}</div> : null}
                       </DropdownMenuContent>
                     </DropdownMenu>
+                    {hasSpeedDowngrade(r) ? <p className="w-full text-xs text-warn">{fill(t(arrivalInfo(r.source.chain.chain, true).standardAlreadyFast ? "standardAlreadyFast" : "speedDowngraded"), { chain: L(r.source.chain).name })}</p> : null}
                     {unknown ? <div className="w-full text-sm text-ink-2">
                       <p>{fill(t("unknownTransfer"), { token: r.token, destination: L(r.destination.chain).name })}</p>
                       {addressUrl ? <a href={addressUrl} target="_blank" rel="noreferrer" className="mt-1 inline-flex text-primary underline">{fill(t("checkDestination"), { destination: L(r.destination.chain).name })}</a> : null}
