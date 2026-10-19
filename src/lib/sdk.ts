@@ -63,7 +63,7 @@ export async function estimateWithoutWallet(input: { from: ChainDefinition; to: 
   const { kit } = await loadSdk();
   return kit.estimate({
     from: { adapter, chain: input.from.chain },
-    to: { adapter, chain: input.to.chain, recipientAddress: recipient, ...(input.relayer ? { useForwarder: true } : {}) },
+    to: { adapter, chain: input.to.chain, recipientAddress: recipient, ...(input.token === "EURC" || input.relayer ? { useForwarder: true } : {}) },
     amount: input.amount, token: input.token, config: { transferSpeed: input.fast ? "FAST" : "SLOW" },
   } as BridgeParams);
 }

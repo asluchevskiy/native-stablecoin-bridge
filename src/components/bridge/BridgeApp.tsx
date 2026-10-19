@@ -13,7 +13,7 @@ import { fill, formatArrival, useT, stepLabel, type TKey } from "@/lib/i18n";
 import { languageLocale } from "@/lib/languages";
 import { arrivalInfo, hasSpeedDowngrade } from "@/lib/arrival";
 import {
-  L, explorerTx, fetchBalances, fmt as formatNumber, forwarderDest, isValidRecipient, nativeIsUsdc, shortAddr, tokenAddress,
+  L, effectiveRelayer, explorerTx, fetchBalances, fmt as formatNumber, forwarderDest, isValidRecipient, nativeIsUsdc, shortAddr, tokenAddress,
   type Balances, type Token,
 } from "@/lib/chains";
 import { discoverEvmWallets, getSolanaWallet, rememberWallet, rememberedWallet, type Eip1193, type EvmWalletInfo, type SolProvider } from "@/lib/wallets";
@@ -21,7 +21,8 @@ import { assertTransferAdapter, estimateWithoutWallet, errMsg, isUserRejection, 
 import { cannotResume, destinationTransaction, explorerAddress, isUnsupportedRetry, loadHistory, removalPolicy, removeEntries, restoreEntries, saveHistory, sourceTransaction, type HistoryEntry } from "@/lib/history";
 import { displaySteps, mergeTransferSteps, normalizeStepEvent, receivedAmount, sourceComplete, transferProgress, updateStepTimings } from "@/lib/transfers";
 import { spotPrice, usdCost } from "@/lib/prices";
-import { estimateCosts, fetchPublicFeeEstimate, validEstimateAmount } from "@/lib/fees";
+import { estimateCosts, fetchPublicFeeEstimate, totalCosts, validEstimateAmount } from "@/lib/fees";
+import { estimateGasFallback, type GasFallbacks } from "@/lib/gas";
 
 type Network = "mainnet" | "testnet";
 type Adapter = Awaited<ReturnType<typeof makeEvmAdapter>> | Awaited<ReturnType<typeof makeSolanaAdapter>>;
@@ -69,7 +70,7 @@ export function BridgeApp() {
   const [toId, setToId] = useState<string>();
   const [amount, setAmount] = useState<string>("");
   const [fast, setFast] = useState(true);
-  const [relayer, setRelayer] = useState(true);
+  const [usdcRelayerChoices, setUsdcRelayerChoices] = useState<Record<string, boolean>>({});
   const [custom, setCustom] = useState(false);
   const [customAddr, setCustomAddr] = useState("");
   const [evmWallets, setEvmWallets] = useState<EvmWalletInfo[]>([]);
@@ -81,7 +82,8 @@ export function BridgeApp() {
   const [balances, setBalances] = useState<{ data?: Balances | undefined; loading: boolean; error?: string | undefined }>({ loading: false });
   const [eurc, setEurc] = useState<{ status: "idle" | "loading" | "ready" | "error"; pairs: Set<string>; error?: string }>({ status: "idle", pairs: new Set() });
   const [eurcNonce, setEurcNonce] = useState(0);
-  const [est, setEst] = useState<{ data?: Est | undefined; loading: boolean; error?: string | undefined; withoutWallet?: boolean }>({ loading: false });
+  const [est, setEst] = useState<{ data?: Est | undefined; loading: boolean; error?: string | undefined; withoutWallet?: boolean; gas?: GasFallbacks }>({ loading: false });
+  const [gasNonce, setGasNonce] = useState(0);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [checked, setChecked] = useState(false);
   const [phase, setPhase] = useState<Phase>({ kind: "form" });
@@ -182,13 +184,14 @@ export function BridgeApp() {
 
   // Relayer default
   const relayerAvailable = !!to && forwarderDest(to);
-  useEffect(() => { setRelayer(relayerAvailable); }, [relayerAvailable, toId]);
+  const relayer = toId ? usdcRelayerChoices[toId] ?? relayerAvailable : relayerAvailable;
+  const setRelayer = (value: boolean) => { if (toId && token === "USDC") setUsdcRelayerChoices((choices) => ({ ...choices, [toId]: value })); };
 
   const srcAddress = from ? (L(from).type === "solana" ? sol?.address : evm?.address) : undefined;
   const destAddress = to ? (L(to).type === "solana" ? sol?.address : evm?.address) : undefined;
   const srcAdapter = from ? (L(from).type === "solana" ? (sol ? solAdapter.current : null) : (evm ? evmAdapter.current : null)) : null;
   const destAdapter = to ? (L(to).type === "solana" ? (sol ? solAdapter.current : null) : (evm ? evmAdapter.current : null)) : null;
-  const useRelayer = relayer && relayerAvailable;
+  const useRelayer = effectiveRelayer(token, relayer, relayerAvailable);
   const needPaste = !destAddress;
   const showRecipientInput = custom || needPaste;
   const recipient = showRecipientInput ? customAddr.trim() : destAddress ?? "";
@@ -246,31 +249,46 @@ export function BridgeApp() {
     && (!recipient || isValidRecipient(to, recipient)) && (!custom || !!recipient)
     && (L(to).type !== "solana" || !!recipient);
   useEffect(() => {
+    if (phase.kind !== "form") return;
+    const timer = setInterval(() => setGasNonce((n) => n + 1), 30_000);
+    return () => clearInterval(timer);
+  }, [phase.kind]);
+  useEffect(() => {
     if (!estimateValid || !from || !to) { setEst({ loading: false }); return; }
     let off = false;
     setEst({ loading: true });
     const timer = setTimeout(async () => {
+      const finish = async (data: Est, withoutWallet: boolean) => {
+        const missing = estimateCosts(data, from, to, token, useRelayer).filter((c) => c.kind === "gas" && c.amount === undefined);
+        const gas: GasFallbacks = {};
+        await Promise.all([from, ...(token === "USDC" && !useRelayer ? [to] : [])].map(async (chain) => {
+          if (L(chain).type !== "evm" || !missing.some((c) => c.chain === L(chain).name)) return;
+          gas[chain.chain] = await estimateGasFallback({ chain, token, amount, source: chain === from, relayer: useRelayer,
+            ...(srcAddress ? { owner: srcAddress } : {}), testnet: network === "testnet" });
+        }));
+        if (!off) setEst({ loading: false, data, withoutWallet, gas });
+      };
       let lastError: unknown = new Error(t("connectToEstimate"));
       const params = buildParams();
       if (srcAdapter && params && (useRelayer || destAdapter)) {
         try {
           const { kit } = await loadSdk();
           const data = await kit.estimate(params) as Est;
-          if (!off) setEst({ loading: false, data, withoutWallet: false });
+          await finish(data, false);
           return;
         } catch (e) { lastError = e; }
       }
       if (L(from).type === "evm") {
         try {
           const data = await estimateWithoutWallet({ from, to, amount, token, fast, relayer: useRelayer, recipient: recipient || undefined }) as Est;
-          if (!off) setEst({ loading: false, data, withoutWallet: true });
+          await finish(data, true);
           return;
         } catch (e) { lastError = e; }
       }
       if (token === "USDC") {
         try {
           const data = await fetchPublicFeeEstimate(from, to, amount, fast, useRelayer, network === "testnet");
-          if (!off) setEst({ loading: false, data, withoutWallet: true });
+          await finish(data, true);
           return;
         } catch (e) { lastError = e; }
       }
@@ -278,7 +296,7 @@ export function BridgeApp() {
       if (!off) setEst({ loading: false, error: message });
     }, 600);
     return () => { off = true; clearTimeout(timer); };
-  }, [estimateValid, from, to, srcAdapter, destAdapter, buildParams, amount, token, fast, useRelayer, recipient, network]);
+  }, [estimateValid, from, to, srcAdapter, destAdapter, srcAddress, buildParams, amount, token, fast, useRelayer, recipient, network, gasNonce]);
 
   // Wallet actions
   const evmListeners = useRef<{ provider: Eip1193; accounts: (...a: unknown[]) => void; chain: (...a: unknown[]) => void } | null>(null);
@@ -493,6 +511,8 @@ export function BridgeApp() {
 
   async function retryResult(result: Result, entryId: string | null, createdAt?: number, net: Network = network) {
     if (entryId && (activeIds.current.has(entryId) || historyRef.current.some((h) => h.id === entryId && cannotResume(h)))) return;
+    // CCTPx always forwards; normalize legacy saved EURC results before retry.
+    if (result.token === "EURC") result = { ...result, destination: { ...result.destination, useForwarder: true } };
     const traceId = entryId ?? crypto.randomUUID();
     const srcType = L(result.source.chain).type;
     const dstType = L(result.destination.chain).type;
@@ -523,8 +543,8 @@ export function BridgeApp() {
   // Estimate summaries
   const feeRows = (est.data?.fees ?? []).filter((f) => f.amount && Number(f.amount) > 0);
   const totalFee = feeRows.filter((f) => f.token === token).reduce((s, f) => s + Number(f.amount), 0);
-  const receive = amount && Number(amount) > 0 ? Math.max(0, Number(amount) - totalFee) : 0;
-  const costs = estimateCosts(est.data, from, to, token, useRelayer);
+  const receive = amount && Number(amount) > 0 ? Math.max(0, Number(amount) - (token === "EURC" ? 0 : totalFee)) : 0;
+  const costs = estimateCosts(est.data, from, to, token, useRelayer, est.gas);
   const priceSymbols = [...new Set([token, ...costs.map((c) => c.symbol)])].sort().join(",");
   useEffect(() => {
     let off = false;
@@ -537,21 +557,20 @@ export function BridgeApp() {
     return () => { off = true; clearInterval(timer); };
   }, [priceSymbols]);
   const usdFormat = (value: number) => new Intl.NumberFormat(locale, { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
-  const costValue = (value: number | undefined, symbol: string) => {
+  const costValue = (value: number | undefined, symbol: string, estimated = false) => {
     if (value === undefined) return "—";
     const usd = usdCost(value, symbol, prices);
-    return <span className="inline-flex flex-wrap justify-end gap-x-1.5"><span>{fmt(value, 8)} {symbol}</span>{usd !== undefined ? <span className="text-ink-2">({usdFormat(usd)})</span> : null}</span>;
+    return <span className="inline-flex flex-wrap justify-end gap-x-1.5"><span>{estimated ? "≈ " : ""}{fmt(value, 8)} {symbol}</span>{usd !== undefined ? <span className="text-ink-2">({usdFormat(usd)})</span> : null}</span>;
   };
   const costLabel = (kind: string, chain?: string) => kind === "gas" ? fill(t("networkGas"), { chain: chain ?? "" }) : kind === "relayer" ? t("relayFee") : kind === "fast" ? t("protocolFee") : t("circleService");
-  const costsComplete = costs.length > 0 && costs.every((c) => c.amount !== undefined && usdCost(c.amount, c.symbol, prices) !== undefined);
-  const totalUsd = costs.reduce((sum, c) => sum + (c.amount !== undefined ? usdCost(c.amount, c.symbol, prices) ?? 0 : 0), 0);
+  const { complete: costsComplete, amount: totalUsd, estimated: totalEstimated } = totalCosts(costs, prices);
   const renderCosts = () => <>
     {costs.map((c, i) => <div key={i}>
-      <ReceiptRow k={costLabel(c.kind, c.chain)} v={costValue(c.amount, c.symbol)} />
-      {c.kind === "gas" ? <p className="mt-1 text-xs text-ink-2">{fill(t("gasPaidTo"), { chain: c.chain ?? "" })}{c.amount === undefined ? ` ${t("gasEstimateUnavailable")}` : ""}</p> : c.kind === "relayer" ? <p className="mt-1 text-xs text-ink-2">{t("relayBreakdown")}</p> : null}
+      <ReceiptRow k={costLabel(c.kind, c.chain)} v={costValue(c.amount, c.symbol, c.estimated)} />
+      {c.kind === "gas" ? <p className="mt-1 text-xs text-ink-2">{fill(t("gasPaidTo"), { chain: c.chain ?? "" })} {c.estimated ? fill(t("gasFallbackNote"), { approval: c.includesApproval ? t("gasIncludesApproval") : "" }) : c.amount === undefined ? t("gasEstimateUnavailable") : ""}</p> : c.kind === "relayer" ? <p className="mt-1 text-xs text-ink-2">{t("relayBreakdown")}</p> : null}
     </div>)}
     <p className="text-xs text-ink-2">{token === "EURC" ? fill(t("eurcFeeNote"), { sym: from ? L(from).nativeCurrency.symbol : "" }) : t("usdcFeeNote")}</p>
-    <ReceiptRow k={t("totalCost")} v={costsComplete ? usdFormat(totalUsd) : "—"} strong />
+    <ReceiptRow k={t("totalCost")} v={costsComplete ? `${totalEstimated ? "≈ " : ""}${usdFormat(totalUsd)}` : "—"} strong />
     {!costsComplete ? <p className="text-xs text-ink-2">{t("usdUnavailable")}</p> : null}
   </>;
 
@@ -884,10 +903,10 @@ export function BridgeApp() {
                 <div className="flex items-start justify-between gap-4 border-t border-rule pt-4">
                   <div>
                     <div className="text-sm font-medium">{t("relayer")}</div>
-                    <div className="mt-0.5 text-sm text-ink-2">{!relayerAvailable ? t("relayerUnavailable") : useRelayer ? t("relayerOn") : t("relayerOff")}</div>
-                    {relayerAvailable && to ? <p className="mt-2 text-xs text-ink-2">{fill(t("relayOptOut"), { chain: L(to).name, sym: L(to).nativeCurrency.symbol })}</p> : null}
+                    <div className="mt-0.5 text-sm text-ink-2">{token === "EURC" ? fill(t("eurcRelayerAlways"), { source: from ? L(from).name : "" }) : !relayerAvailable ? t("relayerUnavailable") : useRelayer ? t("relayerOn") : t("relayerOff")}</div>
+                    {token !== "EURC" && relayerAvailable && to ? <p className="mt-2 text-xs text-ink-2">{fill(t("relayOptOut"), { chain: L(to).name, sym: L(to).nativeCurrency.symbol })}</p> : null}
                   </div>
-                  <Switch checked={useRelayer} disabled={!relayerAvailable} onCheckedChange={setRelayer} aria-label={t("relayer")} />
+                  <Switch checked={useRelayer} disabled={token === "EURC" || !relayerAvailable} onCheckedChange={setRelayer} aria-label={t("relayer")} />
                 </div>
               </fieldset>
             )}

@@ -39,6 +39,7 @@ vi.mock("@/lib/sdk", () => ({
 vi.mock("@/lib/chains", async (original) => ({ ...await original<typeof import("@/lib/chains")>(), fetchBalances: vi.fn().mockResolvedValue({ token: "500", native: "1", nativeSymbol: "ETH", decimals: 6 }) }));
 vi.mock("@/lib/wallets", async (original) => ({ ...await original<typeof import("@/lib/wallets")>(), discoverEvmWallets: (cb: (w: unknown[]) => void) => { cb([{ uuid: "wallet", rdns: "test.wallet", name: "Test wallet", provider: fixtures.provider }]); return () => {}; } }));
 vi.mock("@/lib/prices", async (original) => ({ ...await original<typeof import("@/lib/prices")>(), spotPrice: async (symbol: string) => symbol === "USDC" ? 1 : 2500 }));
+vi.mock("@/lib/gas", () => ({ estimateGasFallback: vi.fn(async () => ({ amount: 0.000396, estimated: true, includesApproval: true })) }));
 
 const mount = () => render(<I18nProvider><TooltipProvider><BridgeApp /><Toaster /></TooltipProvider></I18nProvider>);
 const emit = (id: string, method: string, values: object) => act(() => { for (const h of fixtures.handlers) h({ protocol: "cctpx", traceId: id, method, values }); });
@@ -70,6 +71,39 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe("transfer session", () => {
+  it("locks EURC forwarding and restores the previous USDC choice", async () => {
+    mount();
+    const relayer = await screen.findByRole("switch", { name: "Circle relayer mints for me" });
+    expect(relayer).toBeChecked();
+    fireEvent.click(relayer);
+    expect(relayer).not.toBeChecked();
+    fireEvent.click(screen.getByRole("radio", { name: "EURC" }));
+    expect(relayer).toBeChecked();
+    expect(relayer).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("You send"), { target: { value: "10" } });
+    await waitFor(() => expect(fixtures.kit.estimate).toHaveBeenCalledWith(expect.objectContaining({ token: "EURC", to: expect.objectContaining({ useForwarder: true }) })), { timeout: 4000 });
+    fireEvent.click(screen.getByRole("radio", { name: "USDC" }));
+    expect(relayer).not.toBeChecked();
+    expect(relayer).toBeEnabled();
+    await waitFor(() => expect(fixtures.kit.estimate).toHaveBeenLastCalledWith(expect.objectContaining({ token: "USDC", to: expect.not.objectContaining({ useForwarder: true }) })), { timeout: 4000 });
+  });
+  it("calculates wallet-free EURC and USDC self-mint totals using fallback gas", async () => {
+    localStorage.removeItem("nsb.wallet.evm");
+    vi.mocked(estimateWithoutWallet).mockResolvedValueOnce({ gasFees: [], fees: [{ type: "provider", token: "ETH", amount: "0.003" }], quote: { totalAmount: "3000", items: [{ type: "FORWARD", amount: "2000" }, { type: "PRE_FINALITY", amount: "1000" }] } } as any);
+    mount();
+    await screen.findByLabelText("You send");
+    fireEvent.click(screen.getByRole("radio", { name: "EURC" }));
+    fireEvent.change(screen.getByLabelText("You send"), { target: { value: "10" } });
+    const receipt = screen.getByLabelText("Receipt");
+    await waitFor(() => expect(within(receipt).getByText("≈ $8.49")).toBeInTheDocument(), { timeout: 4000 });
+    expect(estimateWithoutWallet).toHaveBeenLastCalledWith(expect.objectContaining({ token: "EURC", relayer: true }));
+    expect(within(receipt).getByText("≈ 10")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("radio", { name: "USDC" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Circle relayer mints for me" }));
+    await waitFor(() => expect(within(receipt).getByText("≈ $2.08")).toBeInTheDocument(), { timeout: 4000 });
+    expect(estimateWithoutWallet).toHaveBeenLastCalledWith(expect.objectContaining({ token: "USDC", relayer: false }));
+    expect(fixtures.kit.bridge).not.toHaveBeenCalled();
+  });
   it("estimates without a wallet and with an insufficient connected balance", async () => {
     localStorage.removeItem("nsb.wallet.evm");
     mount();
@@ -165,13 +199,14 @@ describe("transfer session", () => {
   });
   it("resumes saved EURC via retry with the existing entry trace ID", async () => {
     const [source, destination] = fixtures.kit.getSupportedChains();
-    localStorage.setItem("nsb.history.v1", JSON.stringify([{ id: "saved", createdAt: 123, network: "mainnet", result: { state: "pending", provider: "CCTPXBridgingProvider", token: "EURC", amount: "100", source: { address: "sender", chain: source }, destination: { address: "recipient", chain: destination, useForwarder: true }, steps: [{ name: "approve", state: "success" }, { name: "transfer", state: "success", txHash: "0xoldburn" }] } }]));
+    localStorage.setItem("nsb.history.v1", JSON.stringify([{ id: "saved", createdAt: 123, network: "mainnet", result: { state: "pending", provider: "CCTPXBridgingProvider", token: "EURC", amount: "100", source: { address: "sender", chain: source }, destination: { address: "recipient", chain: destination, useForwarder: false }, steps: [{ name: "approve", state: "success" }, { name: "transfer", state: "success", txHash: "0xoldburn" }] } }]));
     mount();
     await waitFor(() => expect(fixtures.provider.request).toHaveBeenCalledWith({ method: "eth_accounts" }));
     await waitFor(() => expect(screen.getByLabelText(/Test wallet/)).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Resume transfer" }));
     await waitFor(() => expect(fixtures.kit.retry).toHaveBeenCalled());
     expect(fixtures.kit.retry.mock.calls[0]?.[2]).toEqual({ traceId: "saved" });
+    expect(fixtures.kit.retry.mock.calls[0]?.[0].destination.useForwarder).toBe(true);
     expect(fixtures.kit.bridge).not.toHaveBeenCalled();
     expect(screen.queryByRole("button", { name: "Resume transfer" })).not.toBeInTheDocument();
     emit("saved", "fetchAttestation", { status: "complete", attestation: "0xresumed" });

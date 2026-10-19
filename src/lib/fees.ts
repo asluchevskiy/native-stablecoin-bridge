@@ -1,7 +1,9 @@
 import type { ChainDefinition, EstimateResult } from "@circle-fin/bridge-kit";
 import { L } from "./chains";
+import type { GasFallbacks } from "./gas";
+import { usdCost } from "./prices";
 
-export type CostLine = { kind: "gas" | "relayer" | "fast" | "provider"; chain?: string; symbol: string; amount?: number };
+export type CostLine = { kind: "gas" | "relayer" | "fast" | "provider"; chain?: string; symbol: string; amount?: number; estimated?: boolean; includesApproval?: boolean };
 
 export type FeeTier = { finalityThreshold: number; minimumFee: number; forwardFee?: { low: number | string; med: number | string; high: number | string } };
 
@@ -34,15 +36,15 @@ export async function fetchPublicFeeEstimate(source: ChainDefinition, destinatio
 }
 
 /** Keep the quote's human-readable summary and atomic item breakdown distinct. */
-export function estimateCosts(estimate: EstimateResult<string, string> | undefined, source: ChainDefinition | undefined, destination: ChainDefinition | undefined, token: string, relayer: boolean): CostLine[] {
+export function estimateCosts(estimate: EstimateResult<string, string> | undefined, source: ChainDefinition | undefined, destination: ChainDefinition | undefined, token: string, relayer: boolean, fallback: GasFallbacks = {}): CostLine[] {
   if (!source || !destination) return [];
   const costs: CostLine[] = [];
-  for (const chain of [source, ...(!relayer ? [destination] : [])]) {
+  for (const chain of [source, ...(!relayer && token !== "EURC" ? [destination] : [])]) {
     const gas = estimate?.gasFees.filter((g) => String(g.blockchain) === L(chain).chain);
     const known = gas?.filter((g) => g.fees && Number.isFinite(Number(g.fees.fee)));
     costs.push({ kind: "gas", chain: L(chain).name, symbol: L(chain).nativeCurrency.symbol,
       // Bridge Kit's live estimate returns fee in human-readable native-token units.
-      ...(known?.length && known.length === gas?.length ? { amount: known.reduce((sum, g) => sum + Number(g.fees?.fee), 0) } : {}) });
+      ...(known?.length && known.length === gas?.length ? { amount: known.reduce((sum, g) => sum + Number(g.fees?.fee), 0) } : fallback[L(chain).chain] ?? {}) });
   }
   const quote = estimate?.quote as { totalAmount?: string; items?: { type: string; amount: string }[] } | undefined;
   for (const fee of estimate?.fees ?? []) {
@@ -53,4 +55,9 @@ export function estimateCosts(estimate: EstimateResult<string, string> | undefin
     } else if (Number(fee.amount) > 0) costs.push({ kind: fee.type === "forwarder" ? "relayer" : token === "USDC" && fee.type === "provider" ? "fast" : "provider", symbol: fee.token, amount: Number(fee.amount) });
   }
   return costs;
+}
+
+export function totalCosts(costs: CostLine[], prices: Record<string, number | undefined>) {
+  const values = costs.map((c) => c.amount === undefined ? undefined : usdCost(c.amount, c.symbol, prices));
+  return { complete: values.length > 0 && values.every((v) => v !== undefined), amount: values.reduce<number>((sum, v) => sum + (v ?? 0), 0), estimated: costs.some((c) => c.estimated) };
 }
