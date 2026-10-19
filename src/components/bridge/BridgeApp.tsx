@@ -18,6 +18,7 @@ import { errMsg, isUserRejection, loadSdk, makeEvmAdapter, makeSolanaAdapter } f
 import { loadHistory, saveHistory, type HistoryEntry } from "@/lib/history";
 import { displaySteps, mergeTransferSteps, normalizeStepEvent, receivedAmount, sourceComplete, transferProgress, updateStepTimings } from "@/lib/transfers";
 import { spotPrice, usdCost } from "@/lib/prices";
+import { estimateCosts } from "@/lib/fees";
 
 type Network = "mainnet" | "testnet";
 type Adapter = Awaited<ReturnType<typeof makeEvmAdapter>> | Awaited<ReturnType<typeof makeSolanaAdapter>>;
@@ -464,20 +465,36 @@ export function BridgeApp() {
   const feeRows = (est.data?.fees ?? []).filter((f) => f.amount && Number(f.amount) > 0);
   const totalFee = feeRows.filter((f) => f.token === token).reduce((s, f) => s + Number(f.amount), 0);
   const receive = amount && Number(amount) > 0 ? Math.max(0, Number(amount) - totalFee) : 0;
-  const feeLabel = (type: string) => (type === "provider" ? t("protocolFee") : type === "forwarder" ? t("relayFee") : t("kitFee"));
-  const gasRows = (est.data?.gasFees ?? []).filter((g) => g.fees).map((g) => {
-    const c = chains.find((x) => L(x).chain === String(g.blockchain));
-    const dec = c ? L(c).nativeCurrency.decimals : 18;
-    const raw = g.fees?.fee ?? "0";
-    return { name: g.name, chain: c ? L(c).name : String(g.blockchain), val: Number(raw) / 10 ** dec, sym: g.token };
-  });
-  const gasByChain = Object.values(
-    gasRows.reduce<Record<string, { chain: string; val: number; sym: string }>>((acc, g) => {
-      const k = `${g.chain}|${g.sym}`;
-      acc[k] = { chain: g.chain, sym: g.sym, val: (acc[k]?.val ?? 0) + g.val };
-      return acc;
-    }, {}),
-  );
+  const costs = estimateCosts(est.data, from, to, token, useRelayer);
+  const priceSymbols = [...new Set([token, ...costs.map((c) => c.symbol)])].sort().join(",");
+  useEffect(() => {
+    let off = false;
+    const refresh = async () => {
+      const quotes = await Promise.all(priceSymbols.split(",").filter(Boolean).map(async (symbol) => [symbol, await spotPrice(symbol)] as const));
+      if (!off) setPrices(Object.fromEntries(quotes));
+    };
+    void refresh();
+    const timer = setInterval(() => void refresh(), 60_000);
+    return () => { off = true; clearInterval(timer); };
+  }, [priceSymbols]);
+  const usdFormat = (value: number) => new Intl.NumberFormat(lang === "ru" ? "ru-RU" : "en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
+  const costValue = (value: number | undefined, symbol: string) => {
+    if (value === undefined) return "—";
+    const usd = usdCost(value, symbol, prices);
+    return <span className="inline-flex flex-wrap justify-end gap-x-1.5"><span>{fmt(value, 8)} {symbol}</span>{usd !== undefined ? <span className="text-ink-2">({usdFormat(usd)})</span> : null}</span>;
+  };
+  const costLabel = (kind: string, chain?: string) => kind === "gas" ? fill(t("networkGas"), { chain: chain ?? "" }) : kind === "relayer" ? t("relayFee") : kind === "fast" ? t("protocolFee") : t("circleService");
+  const costsComplete = costs.length > 0 && costs.every((c) => c.amount !== undefined && usdCost(c.amount, c.symbol, prices) !== undefined);
+  const totalUsd = costs.reduce((sum, c) => sum + (c.amount !== undefined ? usdCost(c.amount, c.symbol, prices) ?? 0 : 0), 0);
+  const renderCosts = () => <>
+    {costs.map((c, i) => <div key={i}>
+      <ReceiptRow k={costLabel(c.kind, c.chain)} v={costValue(c.amount, c.symbol)} />
+      {c.kind === "gas" ? <p className="mt-1 text-xs text-ink-2">{fill(t("gasPaidTo"), { chain: c.chain ?? "" })}{c.amount === undefined ? ` ${t("gasEstimateUnavailable")}` : ""}</p> : c.kind === "relayer" ? <p className="mt-1 text-xs text-ink-2">{t("relayBreakdown")}</p> : null}
+    </div>)}
+    <p className="text-xs text-ink-2">{token === "EURC" ? fill(t("eurcFeeNote"), { sym: from ? L(from).nativeCurrency.symbol : "" }) : t("usdcFeeNote")}</p>
+    <ReceiptRow k={t("totalCost")} v={costsComplete ? usdFormat(totalUsd) : "—"} strong />
+    {!costsComplete ? <p className="text-xs text-ink-2">{t("usdUnavailable")}</p> : null}
+  </>;
 
   const running = phase.kind === "running";
   const walletsLocked = runningIds.size > 0;
@@ -521,6 +538,7 @@ export function BridgeApp() {
   })();
   const onCta = () => {
     if (!srcAdapter) {
+      if (walletsLocked) return;
       if (from && L(from).type === "solana") void connectSol();
       else if (window.matchMedia("(max-width: 639px)").matches) setMobileWalletOpen(true);
       else setEvmMenuOpen(true);
@@ -528,7 +546,7 @@ export function BridgeApp() {
     }
     if (canBridge) { setChecked(false); setConfirmOpen(true); }
   };
-  const ctaEnabled = !srcAdapter ? sdkState === "ready" : canBridge;
+  const ctaEnabled = !srcAdapter ? sdkState === "ready" && !walletsLocked : canBridge;
 
   // Route strip state
   const stripFrom = phase.kind === "running" ? phase.from : phase.kind === "done" ? phase.result.source.chain : phase.kind === "failed" && phase.result ? phase.result.source.chain : from;
@@ -816,7 +834,7 @@ export function BridgeApp() {
                 <div className="mt-3 min-h-[100px] space-y-2.5">
                   {!srcAdapter || validation ? (
                     <>
-                      <ReceiptRow k={t("protocolFee")} v={<span className="skeleton inline-block h-3.5 w-14 align-middle opacity-70" />} />
+                      {fast ? <ReceiptRow k={t("protocolFee")} v={<span className="skeleton inline-block h-3.5 w-14 align-middle opacity-70" />} /> : null}
                       {useRelayer ? <ReceiptRow k={t("relayFee")} v={<span className="skeleton inline-block h-3.5 w-14 align-middle opacity-70" />} /> : null}
                       <ReceiptRow k={fill(t("networkGas"), { chain: from ? L(from).name : "" })} v={<span className="skeleton inline-block h-3.5 w-16 align-middle opacity-70" />} />
                       <p className="pt-1 text-xs text-ink-2">{!srcAdapter ? t("connectToEstimate") : t("estimateHint")}</p>
@@ -827,9 +845,7 @@ export function BridgeApp() {
                     <p className="break-words text-sm text-err">{est.error}</p>
                   ) : est.data ? (
                     <>
-                      {feeRows.length === 0 ? <ReceiptRow k={t("fees")} v={`0 ${token}`} /> : null}
-                      {feeRows.map((f, i) => <ReceiptRow key={i} k={feeLabel(f.type)} v={`${fmt(f.amount)} ${f.token}`} />)}
-                      {gasByChain.map((g, i) => <ReceiptRow key={i} k={fill(t("networkGas"), { chain: g.chain })} v={`${fmt(g.val, 6)} ${g.sym}`} />)}
+                      {renderCosts()}
                     </>
                   ) : null}
                 </div>
@@ -983,7 +999,7 @@ export function BridgeApp() {
               <div className="mt-5 space-y-2.5">
                 <ReceiptRow k={t("speed")} v={fast ? t("fast") : t("standard")} />
                 <ReceiptRow k={t("relayer")} v={useRelayer ? t("on") : t("off")} />
-                {feeRows.map((f, i) => <ReceiptRow key={i} k={feeLabel(f.type)} v={`${fmt(f.amount)} ${f.token}`} />)}
+                {renderCosts()}
               </div>
               <div className="tear my-4" aria-hidden />
               <div className="flex items-baseline justify-between">
@@ -1036,10 +1052,10 @@ function AddrBlock({ k, a }: { k: string; a: string }) {
 
 function PrimaryButton({ className = "", disabled, onClick, children }: { className?: string; disabled?: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
-    <button type="button" disabled={disabled} onClick={onClick}
+    <Button type="button" disabled={disabled} onClick={onClick}
       className={`inline-flex h-[52px] w-full items-center justify-center rounded-[12px] bg-primary px-4 text-base font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:bg-tint disabled:text-ink-2 disabled:opacity-100 ${className}`}>
       {children}
-    </button>
+    </Button>
   );
 }
 
