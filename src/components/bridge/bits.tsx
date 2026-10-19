@@ -1,105 +1,116 @@
-import { useState } from "react";
-import type { ChainDefinition } from "@circle-fin/bridge-kit";
-import { Check, ChevronDown, Copy, ExternalLink, Loader2, CircleX, Circle } from "lucide-react";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import type { BridgeResult, ChainDefinition } from "@circle-fin/bridge-kit";
+import { Check, ChevronDown, Copy, ExternalLink, Search } from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { badgeHue, L } from "@/lib/chains";
+import { L } from "@/lib/chains";
 import { stepLabel, useT } from "@/lib/i18n";
-import type { BridgeResult } from "@circle-fin/bridge-kit";
+import { ChainIcon, baseChainId } from "./ChainIcon";
 
 export type Step = BridgeResult<string>["steps"][number];
 
-export function ChainBadge({ name, size = 22 }: { name: string; size?: number }) {
-  const h = badgeHue(name);
-  return (
-    <span
-      aria-hidden
-      className="inline-flex shrink-0 items-center justify-center rounded-full font-mono text-[10px] font-semibold"
-      style={{ width: size, height: size, background: `oklch(0.42 0.08 ${h})`, color: `oklch(0.95 0.03 ${h})` }}
-    >
-      {name.slice(0, 1).toUpperCase()}
-    </span>
-  );
+export function ChainMark({ chain, size = 28 }: { chain: ChainDefinition; size?: number }) {
+  return <ChainIcon id={L(chain).chain} name={L(chain).name} size={size} />;
 }
 
-export function ChainSelect({
-  chains,
-  value,
-  onChange,
-  disabledReason,
-  label,
+const POPULAR = ["Ethereum", "Base", "Arbitrum", "Solana", "Optimism", "Polygon", "Avalanche", "Arc"];
+
+export function ChainField({
+  label, chains, value, onChange, disabledReason,
 }: {
+  label: string;
   chains: ChainDefinition[];
   value?: ChainDefinition | undefined;
   onChange: (c: ChainDefinition) => void;
   disabledReason: (c: ChainDefinition) => string | null;
-  label: string;
 }) {
   const { t } = useT();
   const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const sorted = useMemo(() => {
+    const rank = (c: ChainDefinition) => {
+      const i = POPULAR.indexOf(baseChainId(L(c).chain));
+      return i < 0 ? 99 : i;
+    };
+    return [...chains]
+      .sort((a, b) => rank(a) - rank(b) || L(a).name.localeCompare(L(b).name))
+      .filter((c) => L(c).name.toLowerCase().includes(q.trim().toLowerCase()));
+  }, [chains, q]);
+
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          aria-label={label}
-          className="flex w-full items-center gap-2.5 rounded-lg border bg-surface px-3 py-2.5 text-left text-sm transition-colors hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          {value ? <ChainBadge name={L(value).name} /> : null}
-          <span className="min-w-0 flex-1 truncate">{value ? L(value).name : t("selectChain")}</span>
-          <ChevronDown className="size-4 text-muted-foreground" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent className="w-[var(--radix-popover-trigger-width)] min-w-56 p-0" align="start">
-        <Command>
-          <CommandInput placeholder={t("searchChain")} />
-          <CommandList className="max-h-72">
-            <CommandEmpty>{t("noResults")}</CommandEmpty>
-            {chains.map((c) => {
-              const reason = disabledReason(c);
-              const item = (
-                <CommandItem
-                  key={L(c).chain}
-                  value={L(c).name}
-                  disabled={!!reason}
-                  onSelect={() => {
-                    if (reason) return;
-                    onChange(c);
-                    setOpen(false);
-                  }}
-                  className="gap-2.5"
-                >
-                  <ChainBadge name={L(c).name} size={20} />
-                  <span className="flex-1 truncate">{L(c).name}</span>
-                  {value && L(value).chain === L(c).chain ? <Check className="size-4 text-primary" /> : null}
-                </CommandItem>
-              );
-              return reason ? (
-                <Tooltip key={L(c).chain}>
-                  <TooltipTrigger asChild>
-                    <div>{item}</div>
-                  </TooltipTrigger>
-                  <TooltipContent side="right">{reason}</TooltipContent>
-                </Tooltip>
-              ) : (
-                item
-              );
-            })}
-          </CommandList>
-        </Command>
-      </PopoverContent>
-    </Popover>
+    <>
+      <button
+        type="button"
+        onClick={() => { setQ(""); setOpen(true); }}
+        className="group flex w-full items-center gap-3 rounded-[12px] border border-rule bg-sheet px-3 py-2.5 text-left transition-colors hover:border-ink-2/40"
+      >
+        <span className="w-12 shrink-0 text-sm font-medium text-ink-2">{label}</span>
+        {value ? <ChainMark chain={value} size={28} /> : null}
+        <span className="min-w-0 flex-1 truncate text-base font-medium">{value ? L(value).name : t("selectChain")}</span>
+        <ChevronDown className="size-4 text-ink-2" />
+      </button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="gap-0 rounded-[20px] border-rule bg-sheet p-0 sm:max-w-[560px] max-sm:top-auto max-sm:bottom-0 max-sm:translate-y-0 max-sm:rounded-b-none max-sm:max-w-full">
+          <DialogHeader className="px-5 pt-5 pb-3 text-left">
+            <DialogTitle className="font-display text-lg font-semibold">{label}</DialogTitle>
+            <DialogDescription className="sr-only">{t("selectChain")}</DialogDescription>
+          </DialogHeader>
+          <div className="px-5 pb-3">
+            <label className="flex items-center gap-2 rounded-[12px] border border-rule px-3 focus-within:outline-2 focus-within:outline-primary focus-within:outline-offset-2">
+              <Search className="size-4 text-ink-2" />
+              <input
+                autoFocus
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder={t("searchChain")}
+                className="h-11 min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-ink-2 focus-visible:outline-none"
+              />
+            </label>
+          </div>
+          <div className="max-h-[60vh] overflow-y-auto px-3 pb-4">
+            {sorted.length === 0 ? <div className="px-2 py-6 text-center text-sm text-ink-2">{t("noResults")}</div> : null}
+            <div className="grid grid-cols-2 gap-1 sm:grid-cols-3">
+              {sorted.map((c) => {
+                const reason = disabledReason(c);
+                const selected = value && L(value).chain === L(c).chain;
+                const btn = (
+                  <button
+                    type="button"
+                    aria-disabled={!!reason}
+                    onClick={() => { if (reason) return; onChange(c); setOpen(false); }}
+                    className={`flex w-full items-center gap-2.5 rounded-[12px] border px-2.5 py-2.5 text-left text-sm transition-colors ${
+                      selected ? "border-primary" : "border-transparent hover:bg-tint"
+                    } ${reason ? "cursor-not-allowed opacity-40" : ""}`}
+                  >
+                    <ChainMark chain={c} size={28} />
+                    <span className="min-w-0 flex-1 truncate font-medium">{L(c).name}</span>
+                    {selected ? <Check className="size-4 text-primary" /> : null}
+                  </button>
+                );
+                return reason ? (
+                  <Tooltip key={L(c).chain}>
+                    <TooltipTrigger asChild><div>{btn}</div></TooltipTrigger>
+                    <TooltipContent>{reason}</TooltipContent>
+                  </Tooltip>
+                ) : (
+                  <div key={L(c).chain}>{btn}</div>
+                );
+              })}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
-export function CopyButton({ text }: { text: string }) {
+export function CopyButton({ text, label }: { text: string; label?: string }) {
   const { t } = useT();
   const [ok, setOk] = useState(false);
   return (
     <button
       type="button"
-      aria-label={t("copy")}
+      aria-label={label ?? t("copy")}
       title={ok ? t("copied") : t("copy")}
       onClick={() => {
         navigator.clipboard?.writeText(text).then(() => {
@@ -107,51 +118,139 @@ export function CopyButton({ text }: { text: string }) {
           setTimeout(() => setOk(false), 1200);
         }).catch(() => {});
       }}
-      className="inline-flex size-6 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+      className="inline-flex size-7 shrink-0 items-center justify-center rounded-[8px] text-ink-2 hover:bg-tint hover:text-ink"
     >
-      {ok ? <Check className="size-3.5 text-success" /> : <Copy className="size-3.5" />}
+      {ok ? <Check className="size-3.5 text-ok" /> : <Copy className="size-3.5" />}
     </button>
   );
 }
 
-export function StepList({ steps, explorerFor }: { steps: Step[]; explorerFor: (s: Step) => string | undefined }) {
-  const { t } = useT();
+export function Seg<T extends string>({
+  value, options, onChange, disabled = false, label,
+}: { value: T; options: [T, ReactNode][]; onChange: (v: T) => void; disabled?: boolean; label: string }) {
   return (
-    <ol className="space-y-2">
+    <div className="inline-flex rounded-[10px] border border-rule bg-sheet p-0.5" role="radiogroup" aria-label={label}>
+      {options.map(([v, node]) => (
+        <button
+          key={v}
+          type="button"
+          role="radio"
+          aria-checked={value === v}
+          disabled={disabled}
+          onClick={() => onChange(v)}
+          className={`inline-flex items-center gap-1.5 rounded-[8px] px-2.5 py-1 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+            value === v ? "bg-tint text-ink ring-1 ring-primary/40" : "text-ink-2 hover:text-ink"
+          }`}
+        >
+          {node}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** Expected step count used only to scale the route line. */
+export function routeProgress(steps: Step[], token: string, done: boolean) {
+  if (done) return 1;
+  const expected = Math.max(token === "USDC" ? 4 : 5, steps.length);
+  const ok = steps.filter((s) => s.state === "success" || s.state === "noop").length;
+  return Math.min(0.96, ok / expected);
+}
+
+export function RouteStrip({
+  from, to, progress, active, error,
+}: { from?: ChainDefinition | undefined; to?: ChainDefinition | undefined; progress: number; active: boolean; error?: boolean }) {
+  return (
+    <div className="flex items-center gap-3" aria-hidden>
+      <div className="flex min-w-0 flex-col items-center gap-1.5">
+        {from ? <ChainMark chain={from} size={44} /> : <span className="size-11 rounded-full bg-tint" />}
+      </div>
+      <div className="relative h-[3px] flex-1 overflow-hidden rounded-full bg-rule">
+        <div
+          className={`route-fill absolute inset-0 rounded-full ${error ? "bg-err" : "bg-primary"}`}
+          style={{ transform: `scaleX(${progress})` }}
+        />
+        {active ? (
+          <div className="route-pulse absolute top-0 h-full w-6 rounded-full bg-primary" style={{ left: `calc(${progress * 100}% - 12px)` }} />
+        ) : null}
+      </div>
+      <div className="flex min-w-0 flex-col items-center gap-1.5">
+        {to ? <ChainMark chain={to} size={44} /> : <span className="size-11 rounded-full bg-tint" />}
+      </div>
+    </div>
+  );
+}
+
+function useStepTimes(steps: Step[]) {
+  const times = useRef(new Map<string, { start: number; end?: number }>());
+  const [, tick] = useState(0);
+  for (const s of steps) {
+    const cur = times.current.get(s.name);
+    if (!cur) times.current.set(s.name, { start: Date.now(), ...(s.state !== "pending" ? { end: Date.now() } : {}) });
+    else if (cur.end === undefined && s.state !== "pending") cur.end = Date.now();
+  }
+  const anyPending = steps.some((s) => s.state === "pending");
+  useEffect(() => {
+    if (!anyPending) return;
+    const id = setInterval(() => tick((n) => n + 1), 1000);
+    return () => clearInterval(id);
+  }, [anyPending]);
+  return times.current;
+}
+
+const fmtElapsed = (ms: number) => {
+  const s = Math.max(0, Math.round(ms / 1000));
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
+};
+
+export function StepTracker({ steps, explorerFor, showTimes = true }: { steps: Step[]; explorerFor: (s: Step) => string | undefined; showTimes?: boolean }) {
+  const { t } = useT();
+  const times = useStepTimes(steps);
+  return (
+    <ol className="relative space-y-0">
       {steps.map((s, i) => {
         const url = explorerFor(s);
+        const tm = times.get(s.name);
+        const ok = s.state === "success" || s.state === "noop";
+        const err = s.state === "error";
+        const last = i === steps.length - 1;
         return (
-          <li key={`${s.name}-${i}`} className="flex items-start gap-3 rounded-lg border bg-surface px-3 py-2.5">
-            <span className="mt-0.5">
-              {s.state === "success" || s.state === "noop" ? (
-                <Check className="size-4 text-success" />
-              ) : s.state === "error" ? (
-                <CircleX className="size-4 text-destructive" />
-              ) : s.state === "pending" ? (
-                <Loader2 className="size-4 animate-spin text-primary" />
-              ) : (
-                <Circle className="size-4 text-muted-foreground" />
-              )}
+          <li key={`${s.name}-${i}`} className="relative flex gap-3 pb-4">
+            {!last ? <span className={`absolute left-[13px] top-7 bottom-0 w-px ${ok ? "bg-primary" : "bg-rule"}`} aria-hidden /> : null}
+            <span
+              className={`num relative z-10 inline-flex size-7 shrink-0 items-center justify-center rounded-full border text-xs font-semibold ${
+                ok ? "border-primary bg-primary text-primary-foreground" : err ? "border-err text-err" : s.state === "pending" ? "border-primary text-primary" : "border-rule text-ink-2"
+              }`}
+            >
+              {ok ? <Check className="size-3.5" /> : i + 1}
             </span>
-            <div className="min-w-0 flex-1">
-              <div className="text-sm">{stepLabel(t, s.name)}</div>
-              {s.txHash ? (
-                <div className="mt-0.5 flex items-center gap-2 font-mono text-xs text-muted-foreground">
-                  <span className="truncate">{s.txHash.slice(0, 10)}…{s.txHash.slice(-6)}</span>
-                  {url ? (
-                    <a href={url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
-                      {t("explorer")} <ExternalLink className="size-3" />
-                    </a>
-                  ) : null}
-                </div>
-              ) : null}
-              {s.state === "error" && s.errorMessage ? (
-                <div className="mt-1 break-words text-xs text-destructive">{s.errorMessage}</div>
-              ) : null}
+            <div className="min-w-0 flex-1 pt-0.5">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium">{stepLabel(t, s.name)}</span>
+                {s.state === "pending" ? <span className="route-pulse size-1.5 rounded-full bg-primary" aria-label={t("status_pending")} /> : null}
+                <span className="num ml-auto text-xs text-ink-2">{showTimes && tm ? fmtElapsed((tm.end ?? Date.now()) - tm.start) : ""}</span>
+                {url ? (
+                  <a href={url} target="_blank" rel="noreferrer" aria-label={`${stepLabel(t, s.name)}: ${t("explorer")}`} title={t("explorer")}
+                    className="inline-flex size-7 items-center justify-center rounded-[8px] text-ink-2 hover:bg-tint hover:text-primary">
+                    <ExternalLink className="size-3.5" />
+                  </a>
+                ) : null}
+              </div>
+              {s.txHash ? <div className="num truncate text-xs text-ink-2">{s.txHash.slice(0, 10)}…{s.txHash.slice(-6)}</div> : null}
+              {err && s.errorMessage ? <div className="mt-1 break-words text-xs text-err">{s.errorMessage}</div> : null}
             </div>
           </li>
         );
       })}
     </ol>
+  );
+}
+
+export function BrandMark() {
+  return (
+    <svg width="28" height="20" viewBox="0 0 28 20" aria-hidden>
+      <circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" strokeWidth="1.75" className="text-ink" />
+      <circle cx="18" cy="10" r="8" className="fill-primary" opacity="0.9" />
+    </svg>
   );
 }
