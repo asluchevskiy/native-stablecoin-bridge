@@ -17,3 +17,5 @@
 - Normalize provider-specific actions and derive expected progress in `src/lib/transfers.ts`; persist retry data and timing independently of the focused receipt so concurrent transfers remain isolated by invocation trace ID.
 - Wallet restoration uses remembered provider identity and silent authorization checks only; never request permissions on mount.
 - Fee interpretation lives in `src/lib/fees.ts` and public client-side USD quotes in `src/lib/prices.ts`; missing gas or price data must remain unknown rather than create misleading totals.
+- The session-only estimate adapter is private to `src/lib/sdk.ts` and only exposed through an estimation operation; bridge and retry guard against estimate adapters because their ephemeral keys must never sign user transfers.
+- History safety and Undo merging are pure helpers in `src/lib/history.ts`; current in-tab activity gates removal so history controls cannot destroy a running transfer's recovery data.
