@@ -3,7 +3,7 @@ export interface Eip1193 {
   on?: (e: string, h: (...a: unknown[]) => void) => void;
   removeListener?: (e: string, h: (...a: unknown[]) => void) => void;
 }
-export interface EvmWalletInfo { uuid: string; rdns?: string; name: string; icon?: string; provider: Eip1193 }
+export interface EvmWalletInfo { uuid: string; rdns?: string | undefined; name: string; icon?: string; provider: Eip1193 }
 
 export function discoverEvmWallets(onChange: (list: EvmWalletInfo[]) => void) {
   const map = new Map<string, EvmWalletInfo>();

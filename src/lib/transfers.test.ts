@@ -66,9 +66,9 @@ describe("expected progress", () => {
     r.steps = [{ name: "approve", state: "success" }];
     const next = updateStepTimings(r, initial, 3000);
     const later = updateStepTimings(r, next, 9000);
-    expect(later.approve).toEqual({ start: 1000, end: 3000 });
-    expect(later.transfer).toEqual({ start: 3000 });
-    expect(later.fetchAttestation).toBeUndefined();
+    expect(later["approve"]).toEqual({ start: 1000, end: 3000 });
+    expect(later["transfer"]).toEqual({ start: 3000 });
+    expect(later["fetchAttestation"]).toBeUndefined();
   });
   it("does not regress successful steps on a later pending event", () => {
     expect(mergeTransferSteps([{ name: "transfer", state: "success", txHash: "burn" }], [{ name: "transfer", state: "pending" }])[0]).toMatchObject({ state: "success", txHash: "burn" });

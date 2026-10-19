@@ -5,7 +5,7 @@ export type Result = BridgeResult<string>;
 export type TransferStep = Result["steps"][number];
 export type StepTiming = { start: number; end?: number };
 export type StepTimings = Record<string, StepTiming>;
-export type DisplayStep = TransferStep & { future?: boolean; timing?: StepTiming };
+export type DisplayStep = TransferStep & { future?: boolean; timing?: StepTiming | undefined };
 
 type EventPayload = {
   traceId?: string; protocol?: string; method?: string;
