@@ -13,3 +13,8 @@
 - [x] Neutral unknown status for saved transfers that cannot resume.
 - [x] Wallet-independent estimates, isolated estimate adapter and public USDC fee fallback.
 - [x] Route-specific arrival text; 53 tests passed, live wallet-free estimates and history interactions verified, automatic build validation passed.
+
+## Localization and timing
+- [ ] Add complete Ukrainian translations, persisted browser-language selection and locale formatting.
+- [ ] Use Circle source-chain attestation times and display downgrade/Linea notices.
+- [ ] Update README live link and language list; run tests and automatic build checks.

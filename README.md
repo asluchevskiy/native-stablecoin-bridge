@@ -1,8 +1,8 @@
 # Native Stablecoin Bridge
 
-Native Stablecoin Bridge is an independent, client-side web interface for moving USDC and EURC between blockchains using Circle's native burn-and-mint protocol ([CCTP](https://developers.circle.com/cctp)). Burned on the source chain, natively minted on the destination by Circle's attestation — no wrapped tokens, no liquidity pools, no counterparty. All bridging logic runs in your browser through Circle's official [Bridge Kit](https://docs.arc.io/app-kit/bridge) SDK: there is no backend, no database and no account system, and the site adds no fee of its own — you pay only the protocol and gas costs Circle's SDK reports.
+**Live:** [native-stablecoin-bridge.lovable.app](https://native-stablecoin-bridge.lovable.app/)
 
-**Live site:** <https://native-stablecoin-bridge.lovable.app>
+Native Stablecoin Bridge is an independent, client-side web interface for moving USDC and EURC between blockchains using Circle's native burn-and-mint protocol ([CCTP](https://developers.circle.com/cctp)). Burned on the source chain, natively minted on the destination by Circle's attestation — no wrapped tokens, no liquidity pools, no counterparty. All bridging logic runs in your browser through Circle's official [Bridge Kit](https://docs.arc.io/app-kit/bridge) SDK: there is no backend, no database and no account system, and the site adds no fee of its own — you pay only the protocol and gas costs Circle's SDK reports.
 
 ## Features
 
@@ -12,7 +12,7 @@ Native Stablecoin Bridge is an independent, client-side web interface for moving
 - **Optional Circle relayer mint** — where the destination supports it, the mint transaction is covered and broadcast for you, so you don't need gas on the destination chain.
 - **Confirmation before signing** — a dialog shows the full route, amount, fees, speed and full recipient address before anything is signed. On mainnet this is required.
 - **Transfer history and Resume** — every transfer is written to `localStorage` the moment you confirm and again on each SDK event. A tab that is closed or reloaded mid-transfer can be picked up again with **Resume**, which continues the existing transfer rather than starting a new one.
-- **English and Russian** interface, **light and dark** themes, both persisted between visits.
+- **English / Russian / Ukrainian (EN / RU / UA)** interface, **light and dark** themes, both persisted between visits.
 - Wallets are discovered over EIP-6963 (any injected EVM wallet) plus Solana wallets such as Phantom, Solflare or Backpack.
 
 ## Tech stack
@@ -61,7 +61,7 @@ src/
     ├── chains.ts        # chain + token helpers, balance fetching, formatting — all derived from SDK data
     ├── wallets.ts       # EIP-6963 EVM wallet discovery and Solana provider detection
     ├── history.ts       # localStorage transfer log: save, load, resume-safe serialization
-    └── i18n.tsx         # English and Russian strings, and the useT() hook
+    └── i18n.tsx         # English, Russian and Ukrainian strings, and the useT() hook
 ```
 
 ## Security notes
