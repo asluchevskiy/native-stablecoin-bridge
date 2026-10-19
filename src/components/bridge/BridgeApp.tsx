@@ -26,7 +26,7 @@ type Phase =
   | { kind: "form" }
   | { kind: "running"; entryId: string | null; steps: Step[]; result?: Result; token: string; amount: string; from: ChainDefinition; to: ChainDefinition }
   | { kind: "done"; entryId: string; result: Result }
-  | { kind: "failed"; entryId: string | null; result?: Result; message: string; rejected: boolean; retryable: boolean };
+  | { kind: "failed"; entryId: string | null; result?: Result | undefined; message: string; rejected: boolean; retryable: boolean };
 
 const eurcCache = new Map<Network, Set<string>>();
 const pairKey = (a: ChainDefinition, b: ChainDefinition) => `${L(a).chain}>${L(b).chain}`;
@@ -81,10 +81,10 @@ export function BridgeApp() {
   const evmAdapter = useRef<Adapter | null>(null);
   const solAdapter = useRef<Adapter | null>(null);
   const [walletErr, setWalletErr] = useState("");
-  const [balances, setBalances] = useState<{ data?: Balances; loading: boolean; error?: string }>({ loading: false });
+  const [balances, setBalances] = useState<{ data?: Balances | undefined; loading: boolean; error?: string | undefined }>({ loading: false });
   const [eurc, setEurc] = useState<{ status: "idle" | "loading" | "ready" | "error"; pairs: Set<string>; error?: string }>({ status: "idle", pairs: new Set() });
   const [eurcNonce, setEurcNonce] = useState(0);
-  const [est, setEst] = useState<{ data?: Est; loading: boolean; error?: string }>({ loading: false });
+  const [est, setEst] = useState<{ data?: Est | undefined; loading: boolean; error?: string | undefined }>({ loading: false });
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [checked, setChecked] = useState(false);
   const [phase, setPhase] = useState<Phase>({ kind: "form" });
@@ -160,7 +160,7 @@ export function BridgeApp() {
   useEffect(() => {
     if (token !== "EURC" || eurc.status !== "ready" || eurc.pairs.size === 0) return;
     if (from && to && eurc.pairs.has(pairKey(from, to))) return;
-    const first = [...eurc.pairs][0].split(">");
+    const first = [...eurc.pairs][0]!.split(">") as [string, string];
     const keepFrom = from && hasOut(from) ? L(from).chain : first[0];
     const dest = [...eurc.pairs].find((p) => p.startsWith(`${keepFrom}>`))!.split(">")[1];
     setFromId(keepFrom);
@@ -266,7 +266,7 @@ export function BridgeApp() {
       w.provider.on?.("accountsChanged", (a: unknown) => {
         const list = a as string[];
         if (!list?.[0]) { setEvm(null); evmAdapter.current = null; }
-        else setEvm((cur) => (cur ? { ...cur, address: list[0] } : cur));
+        else setEvm((cur) => (cur ? { ...cur, address: list[0]! } : cur));
       });
     } catch (e) {
       setWalletErr(isUserRejection(e) ? t("rejected") : await errMsg(e));
@@ -296,7 +296,7 @@ export function BridgeApp() {
     });
   };
 
-  async function run(exec: (kit: BridgeKit) => Promise<Result>, ctx: { entryId: string | null; token: string; amount: string; from: ChainDefinition; to: ChainDefinition; network: Network; createdAt?: number; initialSteps?: Step[] }) {
+  async function run(exec: (kit: BridgeKit) => Promise<Result>, ctx: { entryId: string | null; token: string; amount: string; from: ChainDefinition; to: ChainDefinition; network: Network; createdAt?: number | undefined; initialSteps?: Step[] | undefined }) {
     setConfirmOpen(false);
     setPhase({ kind: "running", entryId: ctx.entryId, steps: ctx.initialSteps ?? [], token: ctx.token, amount: ctx.amount, from: ctx.from, to: ctx.to });
     const { kit, sdk } = await loadSdk();
@@ -307,7 +307,7 @@ export function BridgeApp() {
       if (!name) return;
       setPhase((ph) =>
         ph.kind === "running"
-          ? { ...ph, steps: mergeSteps(ph.steps, [{ name, state: v.state ?? "pending", txHash: v.txHash, explorerUrl: v.explorerUrl }]) }
+          ? { ...ph, steps: mergeSteps(ph.steps, [{ name, state: v.state ?? "pending", ...(v.txHash ? { txHash: v.txHash } : {}), ...(v.explorerUrl ? { explorerUrl: v.explorerUrl } : {}) }]) }
           : ph,
       );
     };
