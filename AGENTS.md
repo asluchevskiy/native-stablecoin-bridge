@@ -10,7 +10,7 @@
 <!-- LOVABLE:END -->
 
 ## Architecture rules
-- Circle Bridge Kit SDK and adapters load only via dynamic import in `src/lib/sdk.ts` (with `src/lib/polyfills.ts` first) — they must never run during SSR.
+- Circle Bridge Kit SDK and adapters load only via dynamic import in `src/lib/sdk.ts` (with `src/lib/polyfills.ts` first) — they must never run during SSR; each loader is guarded by `import.meta.env.SSR` so the server build never bundles the SDK (its Solana deps fail to resolve for the Worker target).
 - Chains, token addresses, RPCs and explorers come from `kit.getSupportedChains()`; never hardcode them — the SDK is the source of truth.
 - Partial transfers are continued with `kit.retry(result, ...)`, never a fresh `kit.bridge()` — re-bridging would burn twice.
 - Transfer history lives in localStorage (`src/lib/history.ts`) — the app has no backend by design.
