@@ -904,7 +904,7 @@ export function BridgeApp() {
                   <div>
                     <div className="text-sm font-medium">{t("relayer")}</div>
                     <div className="mt-0.5 text-sm text-ink-2">{token === "EURC" ? fill(t("eurcRelayerAlways"), { source: from ? L(from).name : "" }) : !relayerAvailable ? t("relayerUnavailable") : useRelayer ? t("relayerOn") : t("relayerOff")}</div>
-                    {token !== "EURC" && relayerAvailable && to ? <p className="mt-2 text-xs text-ink-2">{fill(t("relayOptOut"), { chain: L(to).name, sym: L(to).nativeCurrency.symbol })}</p> : null}
+                    {token !== "EURC" && relayerAvailable && to ? <p className="mt-2 text-xs text-ink-2">{fill(useRelayer ? t("relayOptOut") : t("relayOptIn"), { chain: L(to).name, sym: L(to).nativeCurrency.symbol })}</p> : null}
                   </div>
                   <Switch checked={useRelayer} disabled={token === "EURC" || !relayerAvailable} onCheckedChange={setRelayer} aria-label={t("relayer")} />
                 </div>

@@ -87,6 +87,19 @@ describe("transfer session", () => {
     expect(relayer).toBeEnabled();
     await waitFor(() => expect(fixtures.kit.estimate).toHaveBeenLastCalledWith(expect.objectContaining({ token: "USDC", to: expect.not.objectContaining({ useForwarder: true }) })), { timeout: 4000 });
   });
+  it("shows the relayer hint matching the switch state and none for EURC", async () => {
+    mount();
+    const relayer = await screen.findByRole("switch", { name: "Circle relayer mints for me" });
+    expect(relayer).toBeChecked();
+    expect(screen.getByText("Turn off to skip the relay fee — you'll sign the mint on Base yourself and need a little ETH for gas.")).toBeInTheDocument();
+    fireEvent.click(relayer);
+    expect(relayer).not.toBeChecked();
+    expect(screen.getByText("Turn on to let Circle's relayer mint on Base for a small fee — no ETH needed there.")).toBeInTheDocument();
+    expect(screen.queryByText(/Turn off to skip the relay fee/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("radio", { name: "EURC" }));
+    expect(screen.queryByText(/Turn (off|on) to/)).not.toBeInTheDocument();
+    expect(screen.getByText("EURC is always delivered by Circle's relayer. Its fee is part of Circle's quote, so you only sign on Ethereum.")).toBeInTheDocument();
+  });
   it("calculates wallet-free EURC and USDC self-mint totals using fallback gas", async () => {
     localStorage.removeItem("nsb.wallet.evm");
     vi.mocked(estimateWithoutWallet).mockResolvedValueOnce({ gasFees: [], fees: [{ type: "provider", token: "ETH", amount: "0.003" }], quote: { totalAmount: "3000", items: [{ type: "FORWARD", amount: "2000" }, { type: "PRE_FINALITY", amount: "1000" }] } } as any);
