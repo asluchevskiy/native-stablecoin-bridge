@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { BridgeResult, ChainDefinition } from "@circle-fin/bridge-kit";
-import { Check, ChevronDown, Copy, ExternalLink, Search } from "lucide-react";
+import { Check, ChevronDown, Copy, ExternalLink, Loader2, Search } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { L } from "@/lib/chains";
 import { stepLabel, useT } from "@/lib/i18n";
+import type { DisplayStep } from "@/lib/transfers";
 import { ChainIcon, baseChainId } from "./ChainIcon";
 
 export type Step = BridgeResult<string>["steps"][number];
@@ -149,14 +150,6 @@ export function Seg<T extends string>({
   );
 }
 
-/** Expected step count used only to scale the route line. */
-export function routeProgress(steps: Step[], token: string, done: boolean) {
-  if (done) return 1;
-  const expected = Math.max(token === "USDC" ? 4 : 5, steps.length);
-  const ok = steps.filter((s) => s.state === "success" || s.state === "noop").length;
-  return Math.min(0.96, ok / expected);
-}
-
 export function RouteStrip({
   from, to, progress, active, error, label,
 }: { from?: ChainDefinition | undefined; to?: ChainDefinition | undefined; progress: number; active: boolean; error?: boolean; label?: string }) {
@@ -188,21 +181,14 @@ export function RouteStrip({
   );
 }
 
-function useStepTimes(steps: Step[]) {
-  const times = useRef(new Map<string, { start: number; end?: number }>());
+function useStepClock(steps: DisplayStep[]) {
   const [, tick] = useState(0);
-  for (const s of steps) {
-    const cur = times.current.get(s.name);
-    if (!cur) times.current.set(s.name, { start: Date.now(), ...(s.state !== "pending" ? { end: Date.now() } : {}) });
-    else if (cur.end === undefined && s.state !== "pending") cur.end = Date.now();
-  }
-  const anyPending = steps.some((s) => s.state === "pending");
+  const anyPending = steps.some((s) => !s.future && s.state === "pending");
   useEffect(() => {
     if (!anyPending) return;
     const id = setInterval(() => tick((n) => n + 1), 1000);
     return () => clearInterval(id);
   }, [anyPending]);
-  return times.current;
 }
 
 const fmtElapsed = (ms: number) => {
@@ -210,14 +196,14 @@ const fmtElapsed = (ms: number) => {
   return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
 };
 
-export function StepTracker({ steps, explorerFor, showTimes = true }: { steps: Step[]; explorerFor: (s: Step) => string | undefined; showTimes?: boolean }) {
+export function StepTracker({ steps, explorerFor, showTimes = true, attestationHint }: { steps: DisplayStep[]; explorerFor: (s: Step) => string | undefined; showTimes?: boolean; attestationHint?: string }) {
   const { t } = useT();
-  const times = useStepTimes(steps);
+  useStepClock(steps);
   return (
     <ol className="relative space-y-0">
       {steps.map((s, i) => {
         const url = explorerFor(s);
-        const tm = times.get(s.name);
+        const tm = s.timing;
         const ok = s.state === "success" || s.state === "noop";
         const err = s.state === "error";
         const last = i === steps.length - 1;
@@ -226,15 +212,14 @@ export function StepTracker({ steps, explorerFor, showTimes = true }: { steps: S
             {!last ? <span className={`absolute left-[13px] top-7 bottom-0 w-px ${ok ? "bg-primary" : "bg-rule"}`} aria-hidden /> : null}
             <span
               className={`num relative z-10 inline-flex size-7 shrink-0 items-center justify-center rounded-full border text-xs font-semibold ${
-                ok ? "border-primary bg-primary text-primary-foreground" : err ? "border-err text-err" : s.state === "pending" ? "border-primary text-primary" : "border-rule text-ink-2"
+                ok ? "border-primary bg-primary text-primary-foreground" : err ? "border-err text-err" : !s.future && s.state === "pending" ? "border-primary text-primary" : "border-rule text-ink-2"
               }`}
             >
-              {ok ? <Check className="size-3.5" /> : i + 1}
+              {ok ? <Check className="size-3.5" /> : !s.future && s.state === "pending" ? <Loader2 className="size-3.5 motion-safe:animate-spin" /> : i + 1}
             </span>
             <div className="min-w-0 flex-1 pt-0.5">
               <div className="flex items-center gap-2">
-                <span className="text-sm font-medium">{stepLabel(t, s.name)}</span>
-                {s.state === "pending" ? <span className="route-pulse size-1.5 rounded-full bg-primary" aria-label={t("status_pending")} /> : null}
+                <span className={`text-sm font-medium ${s.future ? "text-ink-2" : ""}`}>{stepLabel(t, s.name)}</span>
                 <span className="num ml-auto text-xs text-ink-2">{showTimes && tm ? fmtElapsed((tm.end ?? Date.now()) - tm.start) : ""}</span>
                 {url ? (
                   <a href={url} target="_blank" rel="noreferrer" aria-label={`${stepLabel(t, s.name)}: ${t("explorer")}`} title={t("explorer")}
@@ -244,6 +229,7 @@ export function StepTracker({ steps, explorerFor, showTimes = true }: { steps: S
                 ) : null}
               </div>
               {s.txHash ? <div className="num truncate text-xs text-ink-2">{s.txHash.slice(0, 10)}…{s.txHash.slice(-6)}</div> : null}
+              {s.name === "fetchAttestation" && !s.future && !ok && !err && attestationHint ? <p className="mt-1 text-xs text-ink-2">{attestationHint}</p> : null}
               {err && s.errorMessage ? <div className="mt-1 break-words text-xs text-err">{s.errorMessage}</div> : null}
             </div>
           </li>
