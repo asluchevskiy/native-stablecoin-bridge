@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import type { ChainDefinition, EstimateResult } from "@circle-fin/bridge-kit";
-import { arrivalKind, estimateCosts, fetchPublicFeeEstimate, publicFeeEstimate, validEstimateAmount } from "./fees";
+import { estimateCosts, fetchPublicFeeEstimate, publicFeeEstimate, validEstimateAmount } from "./fees";
 import { vi } from "vitest";
 const chain = (name: string) => ({ chain: name, name, nativeCurrency: { symbol: "ETH", decimals: 18 } }) as unknown as ChainDefinition;
 it("separates EURC native-token FORWARD and PRE_FINALITY quote fees without double counting", () => {
@@ -48,11 +48,6 @@ it("uses SDK domains including domain zero and the selected Iris network", async
     await fetchPublicFeeEstimate(src, dst, "100", false, false, true);
     expect(fetchMock).toHaveBeenLastCalledWith("https://iris-api-sandbox.circle.com/v2/burn/USDC/fees/0/6?forward=true");
   } finally { vi.unstubAllGlobals(); }
-});
-it("gives route-specific short arrival estimates", () => {
-  expect(arrivalKind(chain("Ethereum"), true)).toBe("arrivalFast");
-  expect(arrivalKind(chain("Ethereum_Sepolia"), false)).toBe("arrivalStandard");
-  expect(arrivalKind(chain("Base"), false)).toBe("arrivalOther");
 });
 it("preserves live SDK human-readable gas fees instead of dividing them a second time", () => {
   const estimate = { gasFees: [

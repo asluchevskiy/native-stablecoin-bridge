@@ -89,11 +89,11 @@ export async function fetchBalances(c: ChainDefinition, token: Token, owner: str
   };
 }
 
-export function fmt(v: string | number | null | undefined, max = 6) {
+export function fmt(v: string | number | null | undefined, max = 6, locale = "en-US") {
   if (v === null || v === undefined || v === "") return "—";
   const n = Number(v);
   if (!isFinite(n)) return String(v);
-  return n.toLocaleString("en-US", { maximumFractionDigits: max });
+  return n.toLocaleString(locale, { maximumFractionDigits: max });
 }
 
 export function badgeHue(name: string) {
