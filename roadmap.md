@@ -15,6 +15,6 @@
 - [x] Route-specific arrival text; 53 tests passed, live wallet-free estimates and history interactions verified, automatic build validation passed.
 
 ## Localization and timing
-- [ ] Add complete Ukrainian translations, persisted browser-language selection and locale formatting.
-- [ ] Use Circle source-chain attestation times and display downgrade/Linea notices.
-- [ ] Update README live link and language list; run tests and automatic build checks.
+- [x] Add complete Ukrainian translations, persisted browser-language selection and locale formatting.
+- [x] Use Circle source-chain attestation times and display downgrade/Linea notices.
+- [x] Update README live link and language list; 108 tests and automatic build checks passed; browser language persistence, mobile settings and Linea/Arc timing verified.
