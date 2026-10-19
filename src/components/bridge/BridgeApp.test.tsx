@@ -104,6 +104,28 @@ describe("transfer session", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Keep" }));
     expect(loadHistory()).toHaveLength(1);
   });
+  it("falls back to the estimate adapter after a wallet simulation failure without executing a transfer", async () => {
+    fixtures.kit.estimate.mockRejectedValueOnce(new Error("Insufficient funds for simulation"));
+    mount();
+    await waitFor(() => expect(screen.getByLabelText(/Test wallet/)).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText("You send"), { target: { value: "600" } });
+    await waitFor(() => expect(estimateWithoutWallet).toHaveBeenCalled(), { timeout: 4000 });
+    expect(screen.getByRole("button", { name: "Not enough USDC" })).toBeDisabled();
+    expect(fixtures.kit.bridge).not.toHaveBeenCalled();
+  });
+  it("marks unsupported saved retries unknown instead of reporting a failed transfer", async () => {
+    const [source, destination] = fixtures.kit.getSupportedChains();
+    localStorage.setItem("nsb.history.v1", JSON.stringify([{ id: "unsupported", createdAt: 123, network: "mainnet", result: { state: "pending", provider: "CCTPXBridgingProvider", token: "EURC", amount: "100", source: { address: "sender", chain: source }, destination: { address: "recipient", chain: destination, useForwarder: true }, steps: [{ name: "transfer", state: "success", txHash: "0xburn" }] } }]));
+    mount();
+    await waitFor(() => expect(screen.getByLabelText(/Test wallet/)).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Resume transfer" }));
+    await waitFor(() => expect(fixtures.transfers).toHaveLength(1));
+    await act(async () => { fixtures.transfers[0]?.reject(new Error("RETRY_NOT_SUPPORTED: no source transaction hash")); });
+    expect(loadHistory()[0]?.resumeUnsupported).toBe(true);
+    expect(loadHistory()[0]?.result.state).toBe("pending");
+    expect(screen.queryByRole("button", { name: "Resume transfer" })).not.toBeInTheDocument();
+    expect(fixtures.kit.bridge).not.toHaveBeenCalled();
+  });
   it("restores silently, runs two isolated EURC transfers, and completes background history", async () => {
     mount();
     await waitFor(() => expect(screen.getByLabelText(/Test wallet/)).toBeInTheDocument());
