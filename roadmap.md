@@ -23,3 +23,6 @@
 - [x] Add complete Ukrainian translations, persisted browser-language selection and locale formatting.
 - [x] Use Circle source-chain attestation times and display downgrade/Linea notices.
 - [x] Update README live link and language list; 108 tests and automatic build checks passed; browser language persistence, mobile settings and Linea/Arc timing verified.
+
+## Source code link
+- [x] Add the public repository link to the desktop header, the mobile settings popover and the footer in EN/RU/UA; 122 tests and automatic build checks passed; header, footer and popover verified in both themes and on mobile.

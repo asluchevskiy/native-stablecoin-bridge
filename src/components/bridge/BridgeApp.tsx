@@ -8,7 +8,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { BrandMark, ChainField, ChainMark, CopyButton, RouteStrip, Seg, StepTracker, type Step } from "./bits";
+import { BrandMark, ChainField, ChainMark, CopyButton, GitHubMark, RouteStrip, Seg, StepTracker, type Step } from "./bits";
 import { fill, formatArrival, useT, stepLabel, type TKey } from "@/lib/i18n";
 import { languageLocale } from "@/lib/languages";
 import { arrivalInfo, hasSpeedDowngrade } from "@/lib/arrival";
@@ -37,6 +37,7 @@ type Phase =
 const eurcCache = new Map<Network, Set<string>>();
 const pairKey = (a: ChainDefinition, b: ChainDefinition) => `${L(a).chain}>${L(b).chain}`;
 const AMOUNT_RE = /^\d*\.?\d*$/;
+const REPO_URL = "https://github.com/asluchevskiy/native-stablecoin-bridge";
 
 async function ensureEvmChain(provider: Eip1193, c: ChainDefinition) {
   const d = L(c);
@@ -673,6 +674,9 @@ export function BridgeApp() {
                     className="inline-flex size-9 items-center justify-center rounded-[10px] border border-rule bg-sheet text-ink-2 hover:text-ink">
                     {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
                   </button></div>
+                <a href={REPO_URL} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-sm text-ink-2 hover:text-ink">
+                  <GitHubMark className="size-4" />{t("github")}
+                </a>
               </PopoverContent>
             </Popover>
             <DropdownMenu open={mobileWalletOpen} onOpenChange={setMobileWalletOpen}>
@@ -723,6 +727,10 @@ export function BridgeApp() {
               className="inline-flex size-9 items-center justify-center rounded-[10px] border border-rule bg-sheet text-ink-2 hover:text-ink">
               {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
             </button>
+            <a href={REPO_URL} target="_blank" rel="noopener noreferrer" aria-label={t("github")} title={t("github")}
+              className="inline-flex size-9 items-center justify-center rounded-[10px] border border-rule bg-sheet text-ink-2 hover:text-ink">
+              <GitHubMark className="size-4" />
+            </a>
             {evm ? (
               <WalletChip icon={evm.info.icon} label={evm.info.name} address={evm.address} disabled={walletsLocked} onDisconnect={disconnectEvm} />
             ) : (
@@ -1086,6 +1094,7 @@ export function BridgeApp() {
           <p className="mt-2 flex flex-wrap justify-center gap-x-4 gap-y-1">
             <a className="underline underline-offset-2 hover:text-ink" href="https://developers.circle.com/cctp" target="_blank" rel="noreferrer">developers.circle.com/cctp</a>
             <a className="underline underline-offset-2 hover:text-ink" href="https://docs.arc.io/app-kit/bridge" target="_blank" rel="noreferrer">docs.arc.io/app-kit/bridge</a>
+            <a className="underline underline-offset-2 hover:text-ink" href={REPO_URL} target="_blank" rel="noopener noreferrer">{t("githubFooter")}</a>
           </p>
         </div>
       </footer>

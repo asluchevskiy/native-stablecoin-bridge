@@ -247,4 +247,21 @@ describe("transfer session", () => {
     await act(async () => { fixtures.transfers[2]?.reject(new Error("Validation failed")); });
     expect(loadHistory().find((h) => h.id === failed.id)).toBeUndefined();
   });
+  it("links to the public source repository from header, settings and footer", async () => {
+    mount();
+    const repo = "https://github.com/asluchevskiy/native-stablecoin-bridge";
+    const header = screen.getByRole("link", { name: "Source code on GitHub" });
+    expect(header).toHaveAttribute("href", repo);
+    expect(header).toHaveAttribute("target", "_blank");
+    expect(header).toHaveAttribute("rel", expect.stringContaining("noopener"));
+    expect(header.querySelector("svg")).toBeInTheDocument();
+    const footer = screen.getByRole("link", { name: "Open source on GitHub" });
+    expect(footer).toHaveAttribute("href", repo);
+    expect(footer).toHaveAttribute("rel", expect.stringContaining("noopener"));
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    const popover = await screen.findByRole("dialog");
+    const row = within(popover).getByRole("link", { name: "Source code on GitHub" });
+    expect(row).toHaveAttribute("href", repo);
+    expect(row).toHaveAttribute("target", "_blank");
+  });
 });
