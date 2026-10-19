@@ -44,7 +44,7 @@ async function confirm(amount: string) {
   fireEvent.click(screen.getByRole("button", { name: `Bridge ${amount} EURC to Base` }));
   const dialog = screen.getByRole("dialog");
   fireEvent.click(within(dialog).getByRole("checkbox"));
-  fireEvent.click(within(dialog).getByRole("button", { name: "Confirm", exact: true }));
+  fireEvent.click(within(dialog).getByRole("button", { name: /^Confirm$/ }));
   await waitFor(() => expect(fixtures.kit.bridge).toHaveBeenCalled());
 }
 beforeEach(() => {
@@ -60,7 +60,7 @@ afterEach(() => cleanup());
 describe("transfer session", () => {
   it("restores silently, runs two isolated EURC transfers, and completes background history", async () => {
     mount();
-    await waitFor(() => expect(screen.getByText("Connect a wallet to see your balance")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByLabelText(/Test wallet/)).toBeInTheDocument());
     expect(fixtures.provider.request).toHaveBeenCalledWith({ method: "eth_accounts" });
     expect(fixtures.provider.request).not.toHaveBeenCalledWith({ method: "eth_requestAccounts" });
     fireEvent.click(screen.getByRole("radio", { name: "EURC" }));

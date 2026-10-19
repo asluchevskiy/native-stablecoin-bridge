@@ -73,4 +73,10 @@ describe("expected progress", () => {
   it("does not regress successful steps on a later pending event", () => {
     expect(mergeTransferSteps([{ name: "transfer", state: "success", txHash: "burn" }], [{ name: "transfer", state: "pending" }])[0]).toMatchObject({ state: "success", txHash: "burn" });
   });
+  it("advances past a skipped approval when the EURC transfer event arrives", () => {
+    const r = base();
+    r.steps = [{ name: "transfer", state: "success", txHash: "burn" }];
+    expect(displaySteps(r).find((s) => s.name === "approve")?.state).toBe("noop");
+    expect(displaySteps(r).filter((s) => !s.future && s.state === "pending").map((s) => s.name)).toEqual(["fetchAttestation"]);
+  });
 });
