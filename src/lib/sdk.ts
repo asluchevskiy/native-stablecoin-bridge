@@ -5,7 +5,7 @@ type SdkModule = typeof import("@circle-fin/bridge-kit");
 let sdkPromise: Promise<{ sdk: SdkModule; kit: BridgeKit }> | null = null;
 
 export function loadSdk() {
-  if (typeof window === "undefined") throw new Error("SDK is browser-only");
+  if (import.meta.env.SSR || typeof window === "undefined") return Promise.reject(new Error("SDK is browser-only"));
   if (!sdkPromise) {
     sdkPromise = (async () => {
       await import("./polyfills");
@@ -19,6 +19,7 @@ export function loadSdk() {
 }
 
 export async function makeEvmAdapter(provider: unknown) {
+  if (import.meta.env.SSR) throw new Error("browser-only");
   await import("./polyfills");
   const m = await import("@circle-fin/adapter-viem-v2");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -26,6 +27,7 @@ export async function makeEvmAdapter(provider: unknown) {
 }
 
 export async function makeSolanaAdapter(provider: unknown) {
+  if (import.meta.env.SSR) throw new Error("browser-only");
   await import("./polyfills");
   const m = await import("@circle-fin/adapter-solana");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
