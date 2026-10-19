@@ -358,7 +358,7 @@ export function BridgeApp() {
     setRunningIds(new Set(activeIds.current));
     focusedId.current = ctx.entryId;
     setConfirmOpen(false);
-    let live: Result = { ...ctx.base, steps: [...ctx.base.steps] };
+    let live: Result = { ...ctx.base, state: "pending", steps: ctx.base.steps.map((step) => step.state === "error" ? { ...step, state: "pending" } : { ...step }) };
     let timings = updateStepTimings(live, historyRef.current.find((e) => e.id === ctx.entryId)?.timings ?? {}, Date.now());
     const persist = () => upsertHistory({ id: ctx.entryId, network: ctx.network, createdAt: ctx.createdAt, result: live, timings });
     persist();

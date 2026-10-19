@@ -19,7 +19,7 @@ export function estimateCosts(estimate: EstimateResult<string, string> | undefin
     if (token === "EURC" && fee.type === "provider" && quote?.items?.length && Number(quote.totalAmount) > 0) {
       for (const item of quote.items) costs.push({ kind: item.type === "FORWARD" ? "relayer" : item.type === "PRE_FINALITY" ? "fast" : "provider", symbol: fee.token,
         amount: Number(fee.amount) * Number(item.amount) / Number(quote.totalAmount) });
-    } else costs.push({ kind: fee.type === "forwarder" ? "relayer" : token === "USDC" && fee.type === "provider" ? "fast" : "provider", symbol: fee.token, amount: Number(fee.amount) });
+    } else if (Number(fee.amount) > 0) costs.push({ kind: fee.type === "forwarder" ? "relayer" : token === "USDC" && fee.type === "provider" ? "fast" : "provider", symbol: fee.token, amount: Number(fee.amount) });
   }
   return costs;
 }
