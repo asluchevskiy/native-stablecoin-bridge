@@ -42,6 +42,11 @@ const pending = () => loadHistory().find((h) => h.result.state === "pending");
 async function confirm(amount: string) {
   fireEvent.change(screen.getByLabelText("You send"), { target: { value: amount } });
   await waitFor(() => expect(screen.getByRole("button", { name: `Bridge ${amount} EURC to Base` })).toBeEnabled(), { timeout: 4000 });
+  const receipt = screen.getByLabelText("Receipt");
+  expect(within(receipt).getByText("Circle relayer fee")).toBeInTheDocument();
+  expect(within(receipt).getByText(/Circle's fee is paid in the source chain's native token/)).toBeInTheDocument();
+  expect(within(receipt).getByText("0.002 ETH")).toBeInTheDocument();
+  expect(within(receipt).getByText("($5.00)")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: `Bridge ${amount} EURC to Base` }));
   const dialog = screen.getByRole("dialog");
   fireEvent.click(within(dialog).getByRole("checkbox"));
@@ -106,6 +111,7 @@ describe("transfer session", () => {
     await waitFor(() => expect(fixtures.kit.retry).toHaveBeenCalled());
     expect(fixtures.kit.retry.mock.calls[0]?.[2]).toEqual({ traceId: "saved" });
     expect(fixtures.kit.bridge).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Resume transfer" })).not.toBeInTheDocument();
     emit("saved", "fetchAttestation", { status: "complete", attestation: "0xresumed" });
     expect(loadHistory()[0]?.result.steps.find((s) => s.name === "fetchAttestation")?.data).toBe("0xresumed");
   });

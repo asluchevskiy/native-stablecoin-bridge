@@ -1,7 +1,9 @@
 # Mainnet transfer fixes
-- [ ] Normalize and persist EURC events, transaction hashes and attestation data.
-- [ ] Show expected steps with stable durations and real route progress.
-- [ ] Isolate concurrent transfers by trace ID and keep background rows live.
-- [ ] Restore remembered wallets silently after reload.
-- [ ] Explain fee recipients and client-side USD estimates with a 60-second cache.
-- [ ] Refresh balances after completion; verify tests, browser and production build signal.
+- [x] Normalize and persist EURC events, transaction hashes and attestation data.
+- [x] Show expected steps with stable durations and real route progress.
+- [x] Isolate concurrent transfers by trace ID and keep background rows live.
+- [x] Restore remembered wallets silently after reload.
+- [x] Explain fee recipients and client-side USD estimates with a 60-second cache.
+- [x] Refresh balances after completion; verify tests and desktop/mobile browser states.
+- [x] Check automatic production validation signal (manual build commands are prohibited by the environment).
+- [ ] Real wallet/mainnet execution check — blocked by absence of a wallet extension and user-authorized funds.
