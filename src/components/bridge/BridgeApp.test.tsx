@@ -85,6 +85,24 @@ describe("transfer session", () => {
     fireEvent.click(screen.getByRole("radio", { name: "USDC" }));
     expect(relayer).not.toBeChecked();
     expect(relayer).toBeEnabled();
+    await waitFor(() => expect(fixtures.kit.estimate).toHaveBeenLastCalledWith(expect.objectContaining({ token: "USDC", to: expect.not.objectContaining({ useForwarder: true }) })), { timeout: 4000 });
+  });
+  it("calculates wallet-free EURC and USDC self-mint totals using fallback gas", async () => {
+    localStorage.removeItem("nsb.wallet.evm");
+    vi.mocked(estimateWithoutWallet).mockResolvedValueOnce({ gasFees: [], fees: [{ type: "provider", token: "ETH", amount: "0.003" }], quote: { totalAmount: "3000", items: [{ type: "FORWARD", amount: "2000" }, { type: "PRE_FINALITY", amount: "1000" }] } } as any);
+    mount();
+    await screen.findByLabelText("You send");
+    fireEvent.click(screen.getByRole("radio", { name: "EURC" }));
+    fireEvent.change(screen.getByLabelText("You send"), { target: { value: "10" } });
+    const receipt = screen.getByLabelText("Receipt");
+    await waitFor(() => expect(within(receipt).getByText("≈ $8.49")).toBeInTheDocument(), { timeout: 4000 });
+    expect(estimateWithoutWallet).toHaveBeenLastCalledWith(expect.objectContaining({ token: "EURC", relayer: true }));
+    expect(within(receipt).getByText("≈ 10")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("radio", { name: "USDC" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Circle relayer mints for me" }));
+    await waitFor(() => expect(within(receipt).getByText("≈ $2.08")).toBeInTheDocument(), { timeout: 4000 });
+    expect(estimateWithoutWallet).toHaveBeenLastCalledWith(expect.objectContaining({ token: "USDC", relayer: false }));
+    expect(fixtures.kit.bridge).not.toHaveBeenCalled();
   });
   it("estimates without a wallet and with an insufficient connected balance", async () => {
     localStorage.removeItem("nsb.wallet.evm");
