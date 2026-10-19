@@ -35,6 +35,6 @@ export interface SolProvider {
 }
 
 export function getSolanaProvider(): SolProvider | null {
-  const w = window as unknown as Record<string, { solana?: SolProvider } & SolProvider>;
+  const w = window as unknown as { phantom?: { solana?: SolProvider }; solflare?: SolProvider; backpack?: SolProvider; solana?: SolProvider };
   return (w.phantom?.solana ?? w.solflare ?? w.backpack ?? w.solana ?? null) as SolProvider | null;
 }

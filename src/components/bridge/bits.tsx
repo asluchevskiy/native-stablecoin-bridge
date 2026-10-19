@@ -31,7 +31,7 @@ export function ChainSelect({
   label,
 }: {
   chains: ChainDefinition[];
-  value?: ChainDefinition;
+  value?: ChainDefinition | undefined;
   onChange: (c: ChainDefinition) => void;
   disabledReason: (c: ChainDefinition) => string | null;
   label: string;

@@ -70,7 +70,7 @@ export function BridgeApp() {
   const [sdkErr, setSdkErr] = useState("");
   const [fromId, setFromId] = useState<string>();
   const [toId, setToId] = useState<string>();
-  const [amount, setAmount] = useState("");
+  const [amount, setAmount] = useState<string>("");
   const [fast, setFast] = useState(true);
   const [relayer, setRelayer] = useState(true);
   const [custom, setCustom] = useState(false);
@@ -505,7 +505,7 @@ export function BridgeApp() {
                   />
                   <span className="font-mono text-sm text-muted-foreground">{token}</span>
                   <Button size="sm" variant="secondary" disabled={!balances.data?.token}
-                    onClick={() => { const b = balances.data?.token; if (b) { const [i, d = ""] = b.split("."); setAmount(d ? `${i}.${d.slice(0, 6)}` : i); } }}>
+                    onClick={() => { const b = balances.data?.token; if (b) { const [i = "0", d = ""] = b.split("."); setAmount(d ? `${i}.${d.slice(0, 6)}` : i); } }}>
                     {t("max")}
                   </Button>
                 </div>
@@ -769,7 +769,7 @@ function Seg({ value, options, onChange }: { value: string; options: [string, st
   );
 }
 
-function ConnectedPill({ label, icon, address, onDisconnect }: { label: string; icon?: string; address: string; onDisconnect: () => void }) {
+function ConnectedPill({ label, icon, address, onDisconnect }: { label: string; icon?: string | undefined; address: string; onDisconnect: () => void }) {
   const { t } = useT();
   return (
     <div className="inline-flex items-center gap-1.5 rounded-lg border bg-surface py-1 pl-2 pr-1 text-xs">
