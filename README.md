@@ -1,6 +1,6 @@
 # Native Stablecoin Bridge
 
-Native Stablecoin Bridge is an independent, client-side web interface for moving USDC and EURC between blockchains using Circle's native burn-and-mint protocol (CCTP). Burned on the source chain, natively minted on the destination by Circle's attestation — no wrapped tokens, no liquidity pools, no counterparty. All bridging logic runs in your browser through Circle's official [Bridge Kit](https://docs.circle.io/) SDK: there is no backend, no database and no account system, and the site adds no fee of its own — you pay only the protocol and gas costs Circle's SDK reports.
+Native Stablecoin Bridge is an independent, client-side web interface for moving USDC and EURC between blockchains using Circle's native burn-and-mint protocol ([CCTP](https://developers.circle.com/cctp)). Burned on the source chain, natively minted on the destination by Circle's attestation — no wrapped tokens, no liquidity pools, no counterparty. All bridging logic runs in your browser through Circle's official [Bridge Kit](https://docs.arc.io/app-kit/bridge) SDK: there is no backend, no database and no account system, and the site adds no fee of its own — you pay only the protocol and gas costs Circle's SDK reports.
 
 **Live site:** <https://native-stablecoin-bridge.lovable.app>
 
@@ -66,11 +66,11 @@ src/
 
 ## Security notes
 
-- **The SDK runs only in the browser.** Bridge Kit and its adapters are loaded through dynamic imports behind an SSR guard, so nothing bridging-related is bundled into or executed by the server build, and no code of yours is ever sent to a server of ours.
+- **The SDK runs only in the browser.** Bridge Kit and its adapters are loaded through dynamic imports behind an SSR guard, so nothing bridging-related is bundled into or executed by the server build, and the site has no server-side component that sees your transfers.
 - **No private keys, seed phrases, RPC credentials or secrets live in this repository.** The app holds only public addresses and the results returned by the SDK. Signing always happens inside your own wallet.
 - **Never re-run a transfer that stopped part-way.** A partial transfer is continued with `kit.retry()` via **Resume** — calling `bridge()` again for the same transfer would burn funds a second time.
 - **Test on testnet first.** Switch to Testnet, take funds from the faucet and bridge a small amount before using real money, and keep the tab open through a Standard transfer if you don't intend to use Resume.
-- The SDK's own error reporting is disabled (`disableErrorReporting: true`), so no transfer data is sent to Circle's telemetry from this interface.
+- The SDK's error telemetry is disabled (`disableErrorReporting: true`). The app still calls Circle's public attestation (Iris) API and public chain RPCs, which see the transaction hashes they are asked about.
 
 ## Disclaimer
 
