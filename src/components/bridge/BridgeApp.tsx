@@ -525,7 +525,7 @@ export function BridgeApp() {
         <div className="mx-auto grid max-w-[912px] grid-cols-[minmax(0,1fr)_auto] items-center gap-2 px-4 py-4 sm:hidden">
           <div className="flex min-w-0 items-center gap-2">
             <span className="shrink-0"><BrandMark /></span>
-            <h1 className="truncate font-display text-lg font-semibold tracking-tight">
+            <h1 className="truncate font-display text-base font-semibold tracking-tight">
               <span className="max-[400px]:hidden">Native </span>Stablecoin Bridge
             </h1>
           </div>
