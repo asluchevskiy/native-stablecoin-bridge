@@ -13,7 +13,7 @@ type Loose = {
   rpcEndpoints: string[];
   usdcAddress: string | null;
   eurcAddress?: string | null;
-  cctp?: { domain?: number; forwarderSupported?: { source?: boolean; destination?: boolean } } | null;
+  cctp?: { domain?: number; forwarderSupported?: { source?: boolean; destination?: boolean }; contracts?: { v2?: { tokenMessenger?: string } } } | null;
   cctpx?: unknown;
 };
 export const L = (c: ChainDefinition) => c as unknown as Loose;
@@ -23,6 +23,7 @@ export const tokenAddress = (c: ChainDefinition, t: Token) =>
 
 export const nativeIsUsdc = (c: ChainDefinition) => L(c).nativeCurrency?.symbol === "USDC";
 export const forwarderDest = (c: ChainDefinition) => !!L(c).cctp?.forwarderSupported?.destination;
+export const effectiveRelayer = (token: Token, choice: boolean, available: boolean) => token === "EURC" || (choice && available);
 export const explorerTx = (c: ChainDefinition | undefined, hash?: string) =>
   c && hash && L(c).explorerUrl ? L(c).explorerUrl.replace("{hash}", hash) : undefined;
 
