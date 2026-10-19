@@ -14,3 +14,6 @@
 - Chains, token addresses, RPCs and explorers come from `kit.getSupportedChains()`; never hardcode them — the SDK is the source of truth.
 - Partial transfers are continued with `kit.retry(result, ...)`, never a fresh `kit.bridge()` — re-bridging would burn twice.
 - Transfer history lives in localStorage (`src/lib/history.ts`) — the app has no backend by design.
+- Normalize provider-specific actions and derive expected progress in `src/lib/transfers.ts`; persist retry data and timing independently of the focused receipt so concurrent transfers remain isolated by invocation trace ID.
+- Wallet restoration uses remembered provider identity and silent authorization checks only; never request permissions on mount.
+- Fee interpretation lives in `src/lib/fees.ts` and public client-side USD quotes in `src/lib/prices.ts`; missing gas or price data must remain unknown rather than create misleading totals.

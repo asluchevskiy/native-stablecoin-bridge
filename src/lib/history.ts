@@ -1,10 +1,12 @@
 import type { BridgeResult } from "@circle-fin/bridge-kit";
+import type { StepTimings } from "./transfers";
 
 export interface HistoryEntry {
   id: string;
   network: "mainnet" | "testnet";
   createdAt: number;
   result: BridgeResult<string>;
+  timings?: StepTimings;
 }
 
 const KEY = "nsb.history.v1";
