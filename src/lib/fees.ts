@@ -3,6 +3,40 @@ import { L } from "./chains";
 
 export type CostLine = { kind: "gas" | "relayer" | "fast" | "provider"; chain?: string; symbol: string; amount?: number };
 
+export type FeeTier = { finalityThreshold: number; minimumFee: number; forwardFee?: { low: number | string; med: number | string; high: number | string } };
+
+export function validEstimateAmount(amount: string): boolean {
+  return /^\d+(?:\.\d{0,6})?$|^\.\d{1,6}$/.test(amount) && Number.isFinite(Number(amount)) && Number(amount) > 0;
+}
+
+export function arrivalKind(source: ChainDefinition | undefined, fast: boolean): "arrivalFast" | "arrivalStandard" | "arrivalOther" {
+  return fast ? "arrivalFast" : source && /^Ethereum(?:_|$)/.test(L(source).chain) ? "arrivalStandard" : "arrivalOther";
+}
+
+export function publicFeeEstimate(tiers: FeeTier[], amount: string, fast: boolean, relayer: boolean): EstimateResult<string, string> {
+  const tier = tiers.find((t) => Number(t.finalityThreshold) === (fast ? 1000 : 2000));
+  if (!tier || !validEstimateAmount(amount) || !Number.isFinite(Number(tier.minimumFee)) || Number(tier.minimumFee) < 0) throw new Error("Fee tier unavailable");
+  const protocol = Number(amount) * Number(tier.minimumFee) / 10000;
+  const relay = relayer ? Number(tier.forwardFee?.high) / 1e6 : 0;
+  if (!Number.isFinite(relay) || relay < 0) throw new Error("Relay fee unavailable");
+  return { gasFees: [], fees: [
+    { type: "provider", token: "USDC", amount: String(protocol) },
+    ...(relayer ? [{ type: "forwarder", token: "USDC", amount: String(relay) }] : []),
+  ] } as unknown as EstimateResult<string, string>;
+}
+
+export async function fetchPublicFeeEstimate(source: ChainDefinition, destination: ChainDefinition, amount: string, fast: boolean, relayer: boolean, testnet: boolean): Promise<EstimateResult<string, string>> {
+  const srcDomain = L(source).cctp?.domain;
+  const dstDomain = L(destination).cctp?.domain;
+  if (srcDomain == null || dstDomain == null) throw new Error("CCTP domains unavailable");
+  const iris = testnet ? "https://iris-api-sandbox.circle.com" : "https://iris-api.circle.com";
+  const response = await fetch(`${iris}/v2/burn/USDC/fees/${srcDomain}/${dstDomain}?forward=true`);
+  if (!response.ok) throw new Error(`Circle fee estimate unavailable (${response.status})`);
+  const tiers = await response.json() as FeeTier[];
+  if (!Array.isArray(tiers)) throw new Error("Invalid Circle fee response");
+  return publicFeeEstimate(tiers, amount, fast, relayer);
+}
+
 /** Keep the quote's human-readable summary and atomic item breakdown distinct. */
 export function estimateCosts(estimate: EstimateResult<string, string> | undefined, source: ChainDefinition | undefined, destination: ChainDefinition | undefined, token: string, relayer: boolean): CostLine[] {
   if (!source || !destination) return [];

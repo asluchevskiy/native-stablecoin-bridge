@@ -13,7 +13,7 @@ type Loose = {
   rpcEndpoints: string[];
   usdcAddress: string | null;
   eurcAddress?: string | null;
-  cctp?: { forwarderSupported?: { source?: boolean; destination?: boolean } } | null;
+  cctp?: { domain?: number; forwarderSupported?: { source?: boolean; destination?: boolean } } | null;
   cctpx?: unknown;
 };
 export const L = (c: ChainDefinition) => c as unknown as Loose;
