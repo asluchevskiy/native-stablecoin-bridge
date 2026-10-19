@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { BridgeKit, BridgeParams, BridgeResult, ChainDefinition, EstimateResult } from "@circle-fin/bridge-kit";
-import { ArrowDownUp, ChevronDown, Copy, ExternalLink, Info, Loader2, LogOut, Moon, Sun, TriangleAlert, Wallet } from "lucide-react";
+import { ArrowDownUp, ChevronDown, Copy, ExternalLink, Info, Loader2, LogOut, Moon, Settings2, Sun, TriangleAlert, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { BrandMark, ChainField, ChainMark, CopyButton, RouteStrip, Seg, StepTracker, routeProgress, type Step } from "./bits";
 import { fill, useT, stepLabel, type TKey } from "@/lib/i18n";
 import {
@@ -467,9 +467,15 @@ export function BridgeApp() {
 
   // Presentation-only state
   const [evmMenuOpen, setEvmMenuOpen] = useState(false);
+  const [mobileWalletOpen, setMobileWalletOpen] = useState(false);
   const [dark, setDark] = useState(false);
   const [swapTurns, setSwapTurns] = useState(0);
-  useEffect(() => { setDark(document.documentElement.classList.contains("dark")); }, []);
+  useEffect(() => {
+    let saved = false;
+    try { saved = localStorage.getItem("nsb.theme") === "dark"; } catch { /* ignore */ }
+    document.documentElement.classList.toggle("dark", saved);
+    setDark(saved);
+  }, []);
   useEffect(() => {
     document.documentElement.dataset["token"] = token.toLowerCase();
   }, [token]);
@@ -493,6 +499,7 @@ export function BridgeApp() {
   const onCta = () => {
     if (!srcAdapter) {
       if (from && L(from).type === "solana") void connectSol();
+      else if (window.matchMedia("(max-width: 639px)").matches) setMobileWalletOpen(true);
       else setEvmMenuOpen(true);
       return;
     }
@@ -515,7 +522,70 @@ export function BridgeApp() {
     <div className="flex min-h-screen flex-col">
       {/* Header */}
       <header>
-        <div className="mx-auto flex max-w-[912px] flex-wrap items-center gap-x-3 gap-y-3 px-4 py-5">
+        <div className="mx-auto grid max-w-[912px] grid-cols-[minmax(0,1fr)_auto] items-center gap-2 px-4 py-4 sm:hidden">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="shrink-0"><BrandMark /></span>
+            <h1 className="truncate font-display text-base font-semibold tracking-tight">
+              <span className="max-[400px]:hidden">Native </span>Stablecoin Bridge
+            </h1>
+          </div>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <Popover>
+              <PopoverTrigger asChild>
+                <button type="button" aria-label={t("settings")} title={t("settings")}
+                  className="inline-flex size-9 items-center justify-center rounded-[10px] border border-rule bg-sheet text-ink-2 hover:text-ink">
+                  <Settings2 className="size-4" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-64 space-y-3 rounded-[12px] border-rule bg-sheet text-ink">
+                <div className="flex items-center justify-between gap-2"><span className="text-sm text-ink-2">{t("network")}</span>
+                  <Seg label={t("network")} value={network} options={[["mainnet", t("mainnet")], ["testnet", t("testnet")]]} disabled={running}
+                    onChange={(v) => { if (!running) { setNetwork(v); setPhase({ kind: "form" }); } }} /></div>
+                <div className="flex items-center justify-between gap-2"><span className="text-sm text-ink-2">{t("language")}</span>
+                  <Seg label={t("language")} value={lang} options={[["en", "EN"], ["ru", "RU"]]} onChange={(v) => setLang(v)} /></div>
+                <div className="flex items-center justify-between gap-2"><span className="text-sm text-ink-2">{t("theme")}</span>
+                  <button type="button" onClick={toggleTheme} aria-label={t("theme")}
+                    className="inline-flex size-9 items-center justify-center rounded-[10px] border border-rule bg-sheet text-ink-2 hover:text-ink">
+                    {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
+                  </button></div>
+              </PopoverContent>
+            </Popover>
+            <DropdownMenu open={mobileWalletOpen} onOpenChange={setMobileWalletOpen}>
+              <DropdownMenuTrigger asChild>
+                <button type="button" className="inline-flex h-9 items-center gap-2 rounded-[10px] border border-rule bg-sheet px-2.5 text-sm font-medium text-ink">
+                  {evm?.info.icon ? <img src={evm.info.icon} alt="" className="size-5 rounded-[6px]" /> : <Wallet className="size-4 text-ink-2" />}
+                  <span className="num">{evm ? shortAddr(evm.address) : sol ? shortAddr(sol.address) : t("connectShort")}</span>
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-64 rounded-[12px] border-rule bg-sheet text-ink">
+                <DropdownMenuLabel className="font-medium text-ink-2">{t("connectEvm")}</DropdownMenuLabel>
+                {evm ? (
+                  <>
+                    <DropdownMenuItem onSelect={() => { navigator.clipboard?.writeText(evm.address).catch(() => {}); }} className="gap-2"><Copy className="size-4" /><span className="num">{shortAddr(evm.address)}</span></DropdownMenuItem>
+                    <DropdownMenuItem disabled={running} onSelect={disconnectEvm} className="gap-2 text-err focus:text-err"><LogOut className="size-4" />{t("disconnect")}</DropdownMenuItem>
+                  </>
+                ) : evmWallets.length === 0 ? (
+                  <div className="px-2 py-2 text-sm text-ink-2">{t("noEvmWallet")}</div>
+                ) : evmWallets.map((w) => (
+                  <DropdownMenuItem key={w.uuid} onSelect={() => connectEvm(w)} className="gap-2.5 py-2">
+                    {w.icon ? <img src={w.icon} alt="" className="size-5 rounded-[6px]" /> : <Wallet className="size-4" />}{w.name}
+                  </DropdownMenuItem>
+                ))}
+                <DropdownMenuSeparator className="bg-rule" />
+                <DropdownMenuLabel className="font-medium text-ink-2">{t("connectSol")}</DropdownMenuLabel>
+                {sol ? (
+                  <>
+                    <DropdownMenuItem onSelect={() => { navigator.clipboard?.writeText(sol.address).catch(() => {}); }} className="gap-2"><Copy className="size-4" /><span className="num">{shortAddr(sol.address)}</span></DropdownMenuItem>
+                    <DropdownMenuItem disabled={running} onSelect={() => { sol.provider.disconnect?.().catch(() => {}); setSol(null); solAdapter.current = null; }} className="gap-2 text-err focus:text-err"><LogOut className="size-4" />{t("disconnect")}</DropdownMenuItem>
+                  </>
+                ) : (
+                  <DropdownMenuItem onSelect={() => { void connectSol(); }} className="gap-2.5 py-2"><Wallet className="size-4" />Phantom / Solflare / Backpack</DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </div>
+        <div className="mx-auto hidden max-w-[912px] flex-wrap items-center gap-x-3 gap-y-3 px-4 py-5 sm:flex">
           <div className="flex items-center gap-2.5">
             <BrandMark />
             <h1 className="font-display text-lg font-semibold tracking-tight">{t("appName")}</h1>
@@ -533,7 +603,7 @@ export function BridgeApp() {
             ) : (
               <DropdownMenu open={evmMenuOpen} onOpenChange={setEvmMenuOpen}>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="outline" className="h-9 rounded-[10px] border-rule bg-sheet"><Wallet className="size-4" />{t("connectEvm")}</Button>
+                  <Button variant="outline" className="h-9 rounded-[10px] border-rule bg-sheet text-ink hover:bg-tint hover:text-ink"><Wallet className="size-4" />{t("connectEvm")}</Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-64 rounded-[12px] border-rule bg-sheet">
                   <DropdownMenuLabel className="text-ink-2 font-medium">{t("chooseWallet")}</DropdownMenuLabel>
@@ -552,7 +622,7 @@ export function BridgeApp() {
               <WalletChip label="Solana" address={sol.address} disabled={running}
                 onDisconnect={() => { sol.provider.disconnect?.().catch(() => {}); setSol(null); solAdapter.current = null; }} />
             ) : (
-              <Button variant="outline" className="h-9 rounded-[10px] border-rule bg-sheet" onClick={connectSol}><Wallet className="size-4" />{t("connectSol")}</Button>
+              <Button variant="outline" className="h-9 rounded-[10px] border-rule bg-sheet text-ink hover:bg-tint hover:text-ink" onClick={connectSol}><Wallet className="size-4" />{t("connectSol")}</Button>
             )}
           </div>
         </div>
@@ -564,8 +634,9 @@ export function BridgeApp() {
           {/* SLIP */}
           <section className="min-w-0 rounded-[20px] bg-sheet p-5 shadow-slip sm:p-6">
             <RouteStrip from={stripFrom} to={stripTo} progress={stripProgress} active={running}
+              label={phase.kind === "running" ? `${fmt(phase.amount)} ${phase.token}` : phase.kind === "done" ? `${fmt(phase.result.amount)} ${phase.result.token}` : amount && Number(amount) > 0 ? `${fmt(amount)} ${token}` : token}
               error={phase.kind === "failed" && !phase.rejected} />
-            <div className="mt-2 flex justify-between text-sm text-ink-2">
+            <div className="mt-2 flex justify-between gap-3 text-sm text-ink">
               <span className="truncate">{stripFrom ? L(stripFrom).name : ""}</span>
               <span className="truncate text-right">{stripTo ? L(stripTo).name : ""}</span>
             </div>
@@ -641,10 +712,10 @@ export function BridgeApp() {
                     </span>
                   </div>
                   <div className="mt-1 flex min-h-5 flex-wrap items-center gap-x-4 gap-y-1 text-sm text-ink-2">
-                    <span className="num">
+                    {!srcAddress ? <span>{t("connectForBalance")}</span> : <span className="num">
                       {t("balance")}{" "}
-                      {balances.loading ? <span className="skeleton inline-block h-3 w-16 align-middle" /> : srcAddress ? `${fmt(balances.data?.token)} ${token}` : "—"}
-                    </span>
+                      {balances.loading ? <span className="skeleton inline-block h-3 w-16 align-middle" /> : `${fmt(balances.data?.token)} ${token}`}
+                    </span>}
                     <button type="button" disabled={!balances.data?.token} className="font-medium text-primary hover:underline disabled:text-ink-2 disabled:no-underline"
                       onClick={() => { const b = balances.data?.token; if (b) { const [i = "0", d = ""] = b.split("."); setAmount(d ? `${i}.${d.slice(0, 6)}` : i); } }}>
                       {t("max")}
@@ -671,7 +742,7 @@ export function BridgeApp() {
                   </div>
                   {showRecipientInput ? (
                     <div className="mt-2">
-                      <input value={customAddr} onChange={(e) => setCustomAddr(e.target.value)} placeholder={t("recipientPlaceholder")} spellCheck={false}
+                      <input value={customAddr} onChange={(e) => setCustomAddr(e.target.value)} placeholder={destAddress ? t("recipientPlaceholder") : t("recipientConnectOrPaste")} spellCheck={false}
                         aria-label={t("recipient")}
                         className="h-11 w-full rounded-[12px] border border-rule bg-sheet px-3 font-mono text-[13px] outline-none placeholder:font-sans placeholder:text-sm placeholder:text-ink-2" />
                       {customAddr && to && !isValidRecipient(to, customAddr.trim()) ? <p className="mt-1.5 text-sm text-err">{t("invalidAddress")}</p> : null}
@@ -693,7 +764,7 @@ export function BridgeApp() {
                   <div className="mt-2 grid grid-cols-2 gap-2" role="radiogroup" aria-label={t("speed")}>
                     {[true, false].map((f) => (
                       <button key={String(f)} type="button" role="radio" aria-checked={fast === f} onClick={() => setFast(f)}
-                        className={`rounded-[12px] border px-3 py-2.5 text-left transition-colors ${fast === f ? "border-primary ring-1 ring-primary" : "border-rule hover:border-ink-2/40"}`}>
+                        className={`flex h-full flex-col items-start justify-start rounded-[12px] border bg-sheet px-3 py-2.5 text-left text-ink transition-colors ${fast === f ? "border-primary ring-1 ring-primary" : "border-rule hover:border-ink-2/40"}`}>
                         <div className="text-sm font-semibold">{f ? t("fast") : t("standard")}</div>
                         <div className="mt-0.5 text-xs leading-snug text-ink-2">{f ? t("fastDesc") : t("standardDesc")}</div>
                       </button>
@@ -714,15 +785,18 @@ export function BridgeApp() {
           </section>
 
           {/* RECEIPT */}
-          <aside className="min-w-0 rounded-[20px] border border-rule bg-sheet p-5 sm:p-6" aria-label={t("receipt")} aria-live="polite">
+          <aside className="min-w-0 rounded-[20px] min-[960px]:sticky min-[960px]:top-6 border border-rule bg-sheet p-5 sm:p-6" aria-label={t("receipt")} aria-live="polite">
             {phase.kind === "form" ? (
               <>
                 <ReceiptRow k={t("youSend")} v={amount && Number(amount) > 0 ? `${fmt(amount)} ${token}` : `0 ${token}`} strong />
-                <div className="mt-3 min-h-[92px] space-y-2.5">
-                  {!srcAdapter ? (
-                    <p className="text-sm text-ink-2">{t("connectToEstimate")}</p>
-                  ) : validation ? (
-                    <p className="text-sm text-ink-2">{t("estimateHint")}</p>
+                <div className="mt-3 min-h-[100px] space-y-2.5">
+                  {!srcAdapter || validation ? (
+                    <>
+                      <ReceiptRow k={t("protocolFee")} v={<span className="skeleton inline-block h-3.5 w-14 align-middle opacity-70" />} />
+                      {useRelayer ? <ReceiptRow k={t("relayFee")} v={<span className="skeleton inline-block h-3.5 w-14 align-middle opacity-70" />} /> : null}
+                      <ReceiptRow k={fill(t("networkGas"), { chain: from ? L(from).name : "" })} v={<span className="skeleton inline-block h-3.5 w-16 align-middle opacity-70" />} />
+                      <p className="pt-1 text-xs text-ink-2">{!srcAdapter ? t("connectToEstimate") : t("estimateHint")}</p>
+                    </>
                   ) : est.loading ? (
                     <><SkelRow /><SkelRow /><SkelRow /></>
                   ) : est.error ? (
@@ -840,7 +914,7 @@ export function BridgeApp() {
                       })}
                     </div>
                     {st !== "success" ? (
-                      <Button size="sm" variant="outline" className="rounded-[8px] border-rule" disabled={running} onClick={() => retryResult(r, h.id, h.createdAt, h.network)}>
+                      <Button size="sm" variant="outline" className="rounded-[8px] border-rule bg-sheet text-ink hover:bg-tint" disabled={running} onClick={() => retryResult(r, h.id, h.createdAt, h.network)}>
                         {t("resume")}
                       </Button>
                     ) : null}
@@ -872,8 +946,8 @@ export function BridgeApp() {
           {from && to ? (
             <div className="max-h-[80vh] overflow-y-auto px-6 pb-6">
               <div className="font-display-amount mt-1">{fmt(amount)} <span className="text-xl text-ink-2">{token}</span></div>
-              <div className="mt-5"><RouteStrip from={from} to={to} progress={0} active={false} /></div>
-              <div className="mt-2 flex justify-between text-sm text-ink-2"><span>{L(from).name}</span><span>{L(to).name}</span></div>
+              <div className="mt-5"><RouteStrip from={from} to={to} progress={0} active={false} label={`${fmt(amount)} ${token}`} /></div>
+              <div className="mt-2 flex justify-between text-sm text-ink"><span>{L(from).name}</span><span>{L(to).name}</span></div>
 
               <div className="mt-5 space-y-3">
                 <AddrBlock k={t("sender")} a={srcAddress ?? ""} />
@@ -948,7 +1022,7 @@ function WalletChip({ label, icon, address, onDisconnect, disabled = false }: { 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button type="button" className="inline-flex h-9 items-center gap-2 rounded-[10px] border border-rule bg-sheet px-2.5 text-sm font-medium" aria-label={`${label} ${address}`}>
+        <button type="button" className="inline-flex h-9 items-center gap-2 rounded-[10px] border border-rule bg-sheet px-2.5 text-sm font-medium text-ink" aria-label={`${label} ${address}`}>
           {icon ? <img src={icon} alt="" className="size-5 rounded-[6px]" /> : <Wallet className="size-4 text-ink-2" />}
           <span className="num">{shortAddr(address)}</span>
           <ChevronDown className="size-3.5 text-ink-2" />
