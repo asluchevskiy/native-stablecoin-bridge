@@ -73,7 +73,7 @@ export function displaySteps(result: Result, timings: StepTimings = {}): Display
   const names = expectedStepNames(result);
   const lastCompleted = names.reduce((last, name, i) => result.steps.some((s) => s.name === name && completedStep(s)) ? i : last, -1);
   // Providers can skip an already-approved allowance without emitting an action.
-  const steps = names.map((name, i) => result.steps.find((s) => s.name === name) ?? { name, state: i < lastCompleted ? "noop" as const : "pending" as const });
+  const steps = names.map((name, i) => result.steps.find((s) => s.name === name) ?? { name, state: i < lastCompleted || result.state === "success" ? "noop" as const : "pending" as const });
   const current = steps.findIndex((s) => !completedStep(s));
   return steps.map((s, i) => ({ ...s, future: i > current && !completedStep(s) && s.state !== "error", timing: timings[s.name] }));
 }

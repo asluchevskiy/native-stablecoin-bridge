@@ -5,6 +5,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { BridgeApp } from "./BridgeApp";
 import { loadHistory } from "@/lib/history";
 import type { Result } from "@/lib/transfers";
+import { fetchBalances } from "@/lib/chains";
 
 const fixtures = vi.hoisted(() => {
   const chain = (name: string, id: number) => ({ chain: name, name, type: "evm", chainId: id, nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 }, explorerUrl: `https://${name.toLowerCase()}.example/tx/{hash}`, rpcEndpoints: ["https://rpc.example"], usdcAddress: "0x0000000000000000000000000000000000000001", eurcAddress: "0x0000000000000000000000000000000000000002", cctpx: {}, cctp: { forwarderSupported: { destination: true } } });
@@ -85,7 +86,9 @@ describe("transfer session", () => {
     expect(loadHistory().find((h) => h.id === first.id)?.result.steps.find((s) => s.name === "fetchAttestation")?.data).toBe("0xattestation1");
     expect(screen.queryByRole("button", { name: "Resume transfer" })).not.toBeInTheDocument();
     const final: Result = { ...first.result, state: "success", steps: [{ name: "approve", state: "success" }, { name: "transfer", state: "success", txHash: "0xtransfer1" }, { name: "fetchAttestation", state: "success", data: "0xattestation1" }, { name: "forward", state: "success", txHash: "0xmint1" }] };
+    const balanceReads = vi.mocked(fetchBalances).mock.calls.length;
     await act(async () => { fixtures.transfers[0]?.resolve(final); });
+    await waitFor(() => expect(vi.mocked(fetchBalances).mock.calls.length).toBeGreaterThan(balanceReads));
     expect(loadHistory().find((h) => h.id === first.id)?.result.state).toBe("success");
     expect(screen.getByText("Completed")).toBeInTheDocument();
     expect(loadHistory().find((h) => h.id === second.id)?.result.state).toBe("pending");
@@ -115,7 +118,8 @@ describe("transfer session", () => {
     if (!first) throw new Error("No entry");
     emit(first.id, "transfer", { transactionHash: "0xretained" });
     await act(async () => { fixtures.transfers[0]?.reject(new Error("Polling unavailable")); });
-    expect(loadHistory().find((h) => h.id === first.id)?.result.steps).toMatchObject([{ name: "transfer", state: "success", txHash: "0xretained" }]);
+    expect(loadHistory().find((h) => h.id === first.id)?.result.steps.find((s) => s.name === "transfer")).toMatchObject({ state: "success", txHash: "0xretained" });
+    expect(loadHistory().find((h) => h.id === first.id)?.result.steps.find((s) => s.name === "fetchAttestation")?.state).toBe("error");
     fireEvent.click(screen.getByRole("button", { name: /^Retry$/ }));
     await waitFor(() => expect(fixtures.kit.retry).toHaveBeenCalled());
     expect(fixtures.kit.bridge).toHaveBeenCalledTimes(1);

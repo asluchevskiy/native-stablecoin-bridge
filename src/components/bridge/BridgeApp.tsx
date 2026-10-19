@@ -395,11 +395,14 @@ export function BridgeApp() {
     } catch (e) {
       const rejected = isUserRejection(e);
       const anyTx = live.steps.some((s) => !!s.txHash);
-      const kept = anyTx || !ctx.fresh ? { ...live, state: "error" as const } : undefined;
+      const message = rejected ? t("rejected") : await errMsg(e);
+      const current = displaySteps(live).find((s) => !s.future && s.state === "pending");
+      const failedSteps = current ? mergeTransferSteps(live.steps, [{ name: current.name, state: "error", errorMessage: message }]) : live.steps;
+      const kept = anyTx || !ctx.fresh ? { ...live, state: "error" as const, steps: failedSteps } : undefined;
       if (!kept) removeHistory(ctx.entryId);
-      else { live = kept; persist(); }
+      else { live = kept; timings = updateStepTimings(live, timings, Date.now()); persist(); }
       if (focusedId.current === ctx.entryId) setPhase({ kind: "failed", entryId: kept ? ctx.entryId : null,
-        rejected, result: kept, retryable: !!kept, message: rejected ? t("rejected") : await errMsg(e) });
+        rejected, result: kept, retryable: !!kept, message });
     } finally {
       kit?.off("*", handler);
       activeIds.current.delete(ctx.entryId);
