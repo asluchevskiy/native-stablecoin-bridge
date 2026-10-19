@@ -1,15 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { BridgeKit, BridgeParams, BridgeResult, ChainDefinition, EstimateResult } from "@circle-fin/bridge-kit";
-import { ArrowDownUp, ExternalLink, Info, Loader2, LogOut, TriangleAlert, Wallet } from "lucide-react";
+import { ArrowDownUp, ChevronDown, Copy, ExternalLink, Info, Loader2, LogOut, Moon, Sun, TriangleAlert, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { ChainBadge, ChainSelect, CopyButton, StepList, type Step } from "./bits";
-import { useT, stepLabel, type TKey } from "@/lib/i18n";
+import { BrandMark, ChainField, ChainMark, CopyButton, RouteStrip, Seg, StepTracker, routeProgress, type Step } from "./bits";
+import { fill, useT, stepLabel, type TKey } from "@/lib/i18n";
 import {
   L, explorerTx, fetchBalances, fmt, forwarderDest, isValidRecipient, nativeIsUsdc, shortAddr, tokenAddress,
   type Balances, type Token,
@@ -453,37 +452,96 @@ export function BridgeApp() {
     const raw = g.fees?.fee ?? "0";
     return { name: g.name, chain: c ? L(c).name : String(g.blockchain), val: Number(raw) / 10 ** dec, sym: g.token };
   });
+  const gasByChain = Object.values(
+    gasRows.reduce<Record<string, { chain: string; val: number; sym: string }>>((acc, g) => {
+      const k = `${g.chain}|${g.sym}`;
+      acc[k] = { chain: g.chain, sym: g.sym, val: (acc[k]?.val ?? 0) + g.val };
+      return acc;
+    }, {}),
+  );
 
   const running = phase.kind === "running";
   const canBridge = !validation && !!srcAdapter && !!est.data && !est.loading && phase.kind === "form";
   const tokenIsNativeGas = !!from && nativeIsUsdc(from) && token === "USDC";
+  const noGas = !!srcAddress && !!balances.data && Number(balances.data.native) === 0;
+
+  // Presentation-only state
+  const [evmMenuOpen, setEvmMenuOpen] = useState(false);
+  const [dark, setDark] = useState(false);
+  const [swapTurns, setSwapTurns] = useState(0);
+  useEffect(() => { setDark(document.documentElement.classList.contains("dark")); }, []);
+  useEffect(() => {
+    document.documentElement.dataset["token"] = token.toLowerCase();
+  }, [token]);
+  const toggleTheme = () => {
+    const next = !dark;
+    setDark(next);
+    document.documentElement.classList.toggle("dark", next);
+    try { localStorage.setItem("nsb.theme", next ? "dark" : "light"); } catch { /* ignore */ }
+  };
+
+  const ctaLabel = (() => {
+    if (!srcAdapter) return t("ctaConnect");
+    if (!to || validation === "errSame") return t("ctaDest");
+    if (validation === "errAmount") return t("ctaAmount");
+    if (validation === "errBalance") return fill(t("ctaNotEnough"), { token });
+    if (validation) return t(validation);
+    if (est.loading) return t("estimating");
+    if (est.error) return t("bridge");
+    return fill(t("ctaBridge"), { amount: fmt(amount), token, chain: L(to).name });
+  })();
+  const onCta = () => {
+    if (!srcAdapter) {
+      if (from && L(from).type === "solana") void connectSol();
+      else setEvmMenuOpen(true);
+      return;
+    }
+    if (canBridge) { setChecked(false); setConfirmOpen(true); }
+  };
+  const ctaEnabled = !srcAdapter ? sdkState === "ready" : canBridge;
+
+  // Route strip state
+  const stripFrom = phase.kind === "running" ? phase.from : phase.kind === "done" ? phase.result.source.chain : phase.kind === "failed" && phase.result ? phase.result.source.chain : from;
+  const stripTo = phase.kind === "running" ? phase.to : phase.kind === "done" ? phase.result.destination.chain : phase.kind === "failed" && phase.result ? phase.result.destination.chain : to;
+  const stripProgress =
+    phase.kind === "running" ? routeProgress(phase.steps, phase.token, false)
+    : phase.kind === "done" ? 1
+    : phase.kind === "failed" && phase.result ? routeProgress(phase.result.steps, phase.result.token, false)
+    : 0;
+
+  const locale = lang === "ru" ? "ru-RU" : "en-US";
 
   return (
     <div className="flex min-h-screen flex-col">
       {/* Header */}
-      <header className="border-b">
-        <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-3 px-4 py-3">
-          <div className="flex items-center gap-2">
-            <span className="inline-block size-2.5 rounded-full bg-primary" aria-hidden />
-            <h1 className="text-sm font-semibold tracking-tight sm:text-base">{t("appName")}</h1>
+      <header>
+        <div className="mx-auto flex max-w-[880px] flex-wrap items-center gap-x-4 gap-y-3 px-4 py-5">
+          <div className="flex items-center gap-2.5">
+            <BrandMark />
+            <h1 className="font-display text-lg font-semibold tracking-tight">{t("appName")}</h1>
           </div>
           <div className="ml-auto flex flex-wrap items-center gap-2">
-            <Seg value={network} options={[["mainnet", t("mainnet")], ["testnet", t("testnet")]]} disabled={running} onChange={(v) => { if (!running) { setNetwork(v as Network); setPhase({ kind: "form" }); } }} />
-            <Seg value={lang} options={[["en", "EN"], ["ru", "RU"]]} onChange={(v) => setLang(v as "en" | "ru")} />
+            <Seg label={t("network")} value={network} options={[["mainnet", t("mainnet")], ["testnet", t("testnet")]]} disabled={running}
+              onChange={(v) => { if (!running) { setNetwork(v); setPhase({ kind: "form" }); } }} />
+            <Seg label={t("language")} value={lang} options={[["en", "EN"], ["ru", "RU"]]} onChange={(v) => setLang(v)} />
+            <button type="button" onClick={toggleTheme} aria-label={t("theme")} title={t("theme")}
+              className="inline-flex size-9 items-center justify-center rounded-[10px] border border-rule bg-sheet text-ink-2 hover:text-ink">
+              {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
+            </button>
             {evm ? (
-              <ConnectedPill label={evm.info.name} icon={evm.info.icon} address={evm.address} disabled={running} onDisconnect={disconnectEvm} />
+              <WalletChip icon={evm.info.icon} label={evm.info.name} address={evm.address} disabled={running} onDisconnect={disconnectEvm} />
             ) : (
-              <DropdownMenu>
+              <DropdownMenu open={evmMenuOpen} onOpenChange={setEvmMenuOpen}>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm"><Wallet className="size-4" />{t("connectEvm")}</Button>
+                  <Button variant="outline" className="h-9 rounded-[10px] border-rule bg-sheet"><Wallet className="size-4" />{t("connectEvm")}</Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-60">
-                  <DropdownMenuLabel>{t("chooseWallet")}</DropdownMenuLabel>
+                <DropdownMenuContent align="end" className="w-64 rounded-[12px] border-rule bg-sheet">
+                  <DropdownMenuLabel className="text-ink-2 font-medium">{t("chooseWallet")}</DropdownMenuLabel>
                   {evmWallets.length === 0 ? (
-                    <div className="px-2 py-2 text-xs text-muted-foreground">{t("noEvmWallet")}</div>
+                    <div className="px-2 py-2 text-sm text-ink-2">{t("noEvmWallet")}</div>
                   ) : evmWallets.map((w) => (
-                    <DropdownMenuItem key={w.uuid} onSelect={() => connectEvm(w)} className="gap-2">
-                      {w.icon ? <img src={w.icon} alt="" className="size-5 rounded" /> : <Wallet className="size-4" />}
+                    <DropdownMenuItem key={w.uuid} onSelect={() => connectEvm(w)} className="gap-2.5 py-2">
+                      {w.icon ? <img src={w.icon} alt="" className="size-5 rounded-[6px]" /> : <Wallet className="size-4" />}
                       {w.name}
                     </DropdownMenuItem>
                   ))}
@@ -491,238 +549,298 @@ export function BridgeApp() {
               </DropdownMenu>
             )}
             {sol ? (
-              <ConnectedPill label="Solana" address={sol.address} disabled={running} onDisconnect={() => { sol.provider.disconnect?.().catch(() => {}); setSol(null); solAdapter.current = null; }} />
+              <WalletChip label="Solana" address={sol.address} disabled={running}
+                onDisconnect={() => { sol.provider.disconnect?.().catch(() => {}); setSol(null); solAdapter.current = null; }} />
             ) : (
-              <Button variant="outline" size="sm" onClick={connectSol}><Wallet className="size-4" />{t("connectSol")}</Button>
+              <Button variant="outline" className="h-9 rounded-[10px] border-rule bg-sheet" onClick={connectSol}><Wallet className="size-4" />{t("connectSol")}</Button>
             )}
           </div>
         </div>
-        {walletErr ? <div className="mx-auto max-w-5xl px-4 pb-2 text-xs text-destructive">{walletErr}</div> : null}
+        {walletErr ? <div className="mx-auto max-w-[880px] px-4 pb-2 text-sm text-err">{walletErr}</div> : null}
       </header>
 
-      <main className="mx-auto w-full max-w-[480px] flex-1 px-4 py-8">
-        <section className="rounded-2xl border bg-card p-4 sm:p-5">
-          <div className="mb-4 flex items-center justify-between">
-            <Seg value={token} options={[["USDC", "USDC"], ["EURC", "EURC"]]} disabled={phase.kind !== "form"} onChange={(v) => { if (phase.kind === "form") setToken(v as Token); }} />
-            <Popover>
-              <PopoverTrigger asChild>
-                <button type="button" className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground">
-                  <Info className="size-3.5" />{t("howItWorks")}
-                </button>
-              </PopoverTrigger>
-              <PopoverContent align="end" className="w-72 text-sm leading-relaxed">{t("howBody")}</PopoverContent>
-            </Popover>
-          </div>
+      <main className="mx-auto w-full max-w-[880px] flex-1 px-4 pb-10 pt-2">
+        <div className="grid gap-5 min-[960px]:grid-cols-[480px_minmax(0,1fr)] min-[960px]:items-start">
+          {/* SLIP */}
+          <section className="rounded-[20px] bg-sheet p-5 shadow-slip sm:p-6">
+            <RouteStrip from={stripFrom} to={stripTo} progress={stripProgress} active={running}
+              error={phase.kind === "failed" && !phase.rejected} />
+            <div className="mt-2 flex justify-between text-sm text-ink-2">
+              <span className="truncate">{stripFrom ? L(stripFrom).name : ""}</span>
+              <span className="truncate text-right">{stripTo ? L(stripTo).name : ""}</span>
+            </div>
 
-          {network === "testnet" ? (
-            <a href="https://faucet.circle.com" target="_blank" rel="noreferrer" className="mb-4 flex items-center gap-1.5 rounded-lg border border-primary/30 bg-accent px-3 py-2 text-xs text-primary hover:underline">
-              {t("faucet")} <ExternalLink className="size-3" />
-            </a>
-          ) : null}
+            <div className="mt-6 flex items-center justify-between gap-3">
+              <Seg label={t("token")} value={token} disabled={phase.kind !== "form"}
+                options={[
+                  ["USDC", <><span className="size-2 rounded-full bg-usdc" aria-hidden />USDC</>],
+                  ["EURC", <><span className="size-2 rounded-full bg-eurc" aria-hidden />EURC</>],
+                ]}
+                onChange={(v) => { if (phase.kind === "form") setToken(v); }} />
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button type="button" className="inline-flex items-center gap-1.5 rounded-[8px] px-1.5 py-1 text-sm text-ink-2 hover:text-ink">
+                    <Info className="size-4" />{t("howItWorks")}
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="w-80 rounded-[12px] border-rule bg-sheet text-sm leading-relaxed">{t("howBody")}</PopoverContent>
+              </Popover>
+            </div>
 
-          {sdkState === "loading" ? (
-            <div className="flex items-center gap-2 py-10 text-sm text-muted-foreground justify-center"><Loader2 className="size-4 animate-spin" />{t("loadingSdk")}</div>
-          ) : sdkState === "error" ? (
-            <div className="py-6 text-sm text-destructive">{t("sdkError")} {sdkErr}</div>
-          ) : phase.kind === "form" ? (
-            <div className="space-y-4">
-              {token === "EURC" && eurc.status === "loading" ? (
-                <div className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="size-3.5 animate-spin" />{t("eurcChecking")}</div>
-              ) : null}
-              {token === "EURC" && eurc.status === "error" ? (
-                <div className="flex items-start gap-2 rounded-lg border border-destructive/40 px-3 py-2 text-xs text-destructive">
-                  <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
-                  <div className="flex-1 break-words">{t("eurcError")} {eurc.error}</div>
-                  <Button size="sm" variant="outline" onClick={() => setEurcNonce((n) => n + 1)}>{t("retry")}</Button>
-                </div>
-              ) : null}
+            {network === "testnet" ? (
+              <a href="https://faucet.circle.com" target="_blank" rel="noreferrer" className="mt-4 inline-flex items-center gap-1.5 text-sm text-primary hover:underline">
+                {t("faucet")} <ExternalLink className="size-3.5" />
+              </a>
+            ) : null}
 
-              <div className="space-y-1.5">
-                <FieldLabel>{t("from")}</FieldLabel>
-                <ChainSelect label={t("from")} chains={fromList} value={from} onChange={(c) => { setFromId(L(c).chain); if (toId === L(c).chain) setToId(fromId); }} disabledReason={fromDisabled} />
+            {sdkState === "loading" ? (
+              <div className="space-y-3 pt-6" aria-busy>
+                <div className="skeleton h-12" /><div className="skeleton h-12" /><div className="skeleton h-20" />
+                <span className="sr-only">{t("loadingSdk")}</span>
               </div>
-              <div className="flex justify-center">
-                <button type="button" aria-label={t("swap")} title={t("swap")} onClick={() => { setFromId(toId); setToId(fromId); }}
-                  className="-my-2 inline-flex size-8 items-center justify-center rounded-full border bg-surface text-muted-foreground hover:text-primary">
-                  <ArrowDownUp className="size-4" />
-                </button>
-              </div>
-              <div className="space-y-1.5">
-                <FieldLabel>{t("to")}</FieldLabel>
-                <ChainSelect label={t("to")} chains={fromList} value={to} onChange={(c) => setToId(L(c).chain)} disabledReason={toDisabled} />
-              </div>
-
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <FieldLabel>{t("amount")}</FieldLabel>
-                  <span className="font-mono text-xs text-muted-foreground">
-                    {t("balance")}: {balances.loading ? "…" : srcAddress ? `${fmt(balances.data?.token)} ${token}` : "—"}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2 rounded-lg border bg-surface px-3 focus-within:ring-2 focus-within:ring-ring">
-                  <input
-                    inputMode="decimal"
-                    placeholder="0.00"
-                    value={amount}
-                    onChange={(e) => { const v = e.target.value.replace(",", "."); if (AMOUNT_RE.test(v)) setAmount(v); }}
-                    className="min-w-0 flex-1 bg-transparent py-3 font-mono text-lg outline-none placeholder:text-muted-foreground"
-                    aria-label={t("amount")}
-                  />
-                  <span className="font-mono text-sm text-muted-foreground">{token}</span>
-                  <Button size="sm" variant="secondary" disabled={!balances.data?.token}
-                    onClick={() => { const b = balances.data?.token; if (b) { const [i = "0", d = ""] = b.split("."); setAmount(d ? `${i}.${d.slice(0, 6)}` : i); } }}>
-                    {t("max")}
-                  </Button>
-                </div>
-                {srcAddress && balances.data && !tokenIsNativeGas ? (
-                  <div className="flex justify-between font-mono text-xs text-muted-foreground">
-                    <span>{t("gasBalance")}</span>
-                    <span>{fmt(balances.data.native)} {balances.data.nativeSymbol}</span>
+            ) : sdkState === "error" ? (
+              <div className="pt-6 text-sm text-err">{t("sdkError")} {sdkErr}</div>
+            ) : (
+              <fieldset disabled={phase.kind !== "form"} className="mt-5 space-y-5 disabled:opacity-60">
+                {token === "EURC" && eurc.status === "loading" ? (
+                  <div className="flex items-center gap-2 text-sm text-ink-2"><Loader2 className="size-4 animate-spin" />{t("eurcChecking")}</div>
+                ) : null}
+                {token === "EURC" && eurc.status === "error" ? (
+                  <div className="flex items-start gap-3 rounded-[12px] bg-tint px-3 py-2.5 text-sm">
+                    <TriangleAlert className="mt-0.5 size-4 shrink-0 text-err" />
+                    <div className="flex-1 break-words">{t("eurcError")} <span className="text-ink-2">{eurc.error}</span></div>
+                    <Button size="sm" variant="outline" className="rounded-[8px]" onClick={() => setEurcNonce((n) => n + 1)}>{t("retry")}</Button>
                   </div>
                 ) : null}
-                {srcAddress && balances.data && Number(balances.data.native) === 0 ? (
-                  <div className="flex items-center gap-1.5 text-xs text-warning"><TriangleAlert className="size-3.5" />{t("noGas")}</div>
-                ) : null}
-                {balances.error ? <div className="text-xs text-destructive break-words">{balances.error}</div> : null}
-              </div>
 
-              {/* Recipient */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between gap-3">
-                  <FieldLabel>{t("recipient")}</FieldLabel>
-                  {destAddress ? (
-                    <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                      {t("differentAddress")}
-                      <Switch checked={custom} onCheckedChange={setCustom} />
-                    </label>
+                <div className="relative space-y-2">
+                  <ChainField label={t("from")} chains={fromList} value={from} disabledReason={fromDisabled}
+                    onChange={(c) => { setFromId(L(c).chain); if (toId === L(c).chain) setToId(fromId); }} />
+                  <button type="button" aria-label={t("swap")} title={t("swap")}
+                    onClick={() => { setFromId(toId); setToId(fromId); setSwapTurns((n) => n + 1); }}
+                    className="absolute right-12 top-1/2 z-10 inline-flex size-9 -translate-y-1/2 items-center justify-center rounded-full border border-rule bg-sheet text-ink-2 hover:text-primary">
+                    <ArrowDownUp className="swap-rot size-4" style={{ transform: `rotate(${swapTurns * 180}deg)` }} />
+                  </button>
+                  <ChainField label={t("to")} chains={fromList} value={to} disabledReason={toDisabled} onChange={(c) => setToId(L(c).chain)} />
+                </div>
+
+                <div>
+                  <label htmlFor="amount" className="text-sm font-medium">{t("youSend")}</label>
+                  <div className="mt-1 flex items-center gap-3">
+                    <input
+                      id="amount"
+                      inputMode="decimal"
+                      autoComplete="off"
+                      placeholder="0.00"
+                      value={amount}
+                      onChange={(e) => { const v = e.target.value.replace(",", "."); if (AMOUNT_RE.test(v)) setAmount(v); }}
+                      className="font-display-amount min-w-0 flex-1 bg-transparent py-1 outline-none placeholder:text-rule focus-visible:outline-none"
+                    />
+                    <span className="inline-flex items-center gap-1.5 rounded-[8px] bg-tint px-2.5 py-1.5 text-sm font-semibold">
+                      <span className={`size-2 rounded-full ${token === "USDC" ? "bg-usdc" : "bg-eurc"}`} aria-hidden />{token}
+                    </span>
+                  </div>
+                  <div className="mt-1 flex min-h-5 flex-wrap items-center gap-x-4 gap-y-1 text-sm text-ink-2">
+                    <span className="num">
+                      {t("balance")}{" "}
+                      {balances.loading ? <span className="skeleton inline-block h-3 w-16 align-middle" /> : srcAddress ? `${fmt(balances.data?.token)} ${token}` : "—"}
+                    </span>
+                    <button type="button" disabled={!balances.data?.token} className="font-medium text-primary hover:underline disabled:text-ink-2 disabled:no-underline"
+                      onClick={() => { const b = balances.data?.token; if (b) { const [i = "0", d = ""] = b.split("."); setAmount(d ? `${i}.${d.slice(0, 6)}` : i); } }}>
+                      {t("max")}
+                    </button>
+                    {srcAddress && balances.data && !tokenIsNativeGas && !noGas ? (
+                      <span className="num ml-auto">{t("gasLabel")} {fmt(balances.data.native)} {balances.data.nativeSymbol}</span>
+                    ) : null}
+                  </div>
+                  {noGas && from && balances.data ? (
+                    <p className="mt-2 text-sm text-warn">{fill(t("gasShort"), { sym: balances.data.nativeSymbol, chain: L(from).name })}</p>
+                  ) : null}
+                  {balances.error ? <p className="mt-2 break-words text-sm text-err">{balances.error}</p> : null}
+                </div>
+
+                {/* Recipient */}
+                <div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-sm font-medium">{t("recipient")}</span>
+                    {destAddress ? (
+                      <button type="button" className="text-sm font-medium text-primary hover:underline" onClick={() => setCustom((c) => !c)}>
+                        {custom ? t("useMyWallet") : t("edit")}
+                      </button>
+                    ) : null}
+                  </div>
+                  {showRecipientInput ? (
+                    <div className="mt-2">
+                      <input value={customAddr} onChange={(e) => setCustomAddr(e.target.value)} placeholder={t("recipientPlaceholder")} spellCheck={false}
+                        aria-label={t("recipient")}
+                        className="h-11 w-full rounded-[12px] border border-rule bg-sheet px-3 font-mono text-[13px] outline-none placeholder:font-sans placeholder:text-sm placeholder:text-ink-2" />
+                      {customAddr && to && !isValidRecipient(to, customAddr.trim()) ? <p className="mt-1.5 text-sm text-err">{t("invalidAddress")}</p> : null}
+                      {!customAddr && to && L(to).type === "solana" ? <p className="mt-1.5 text-sm text-ink-2">{t("needSolAddress")}</p> : null}
+                    </div>
+                  ) : destAddress ? (
+                    <div className="mt-1 flex items-center gap-2 text-base">
+                      {to ? <ChainMark chain={to} size={20} /> : null}
+                      <span className="num">{shortAddr(destAddress)}</span>
+                      <span className="text-sm text-ink-2">({t("you")})</span>
+                      <CopyButton text={destAddress} label={t("copyAddress")} />
+                    </div>
                   ) : null}
                 </div>
-                {showRecipientInput ? (
-                  <>
-                    <Input value={customAddr} onChange={(e) => setCustomAddr(e.target.value)} placeholder={t("recipientPlaceholder")} className="font-mono text-sm" spellCheck={false} />
-                    {customAddr && to && !isValidRecipient(to, customAddr.trim()) ? <div className="text-xs text-destructive">{t("invalidAddress")}</div> : null}
-                    {!customAddr && to && L(to).type === "solana" ? <div className="text-xs text-muted-foreground">{t("needSolAddress")}</div> : null}
-                  </>
-                ) : destAddress ? (
-                  <div className="flex items-center gap-2 rounded-lg border bg-surface px-3 py-2 font-mono text-sm">
-                    <span className="truncate">{destAddress}</span><CopyButton text={destAddress} />
+
+                {/* Speed */}
+                <div>
+                  <span className="text-sm font-medium">{t("speed")}</span>
+                  <div className="mt-2 grid grid-cols-2 gap-2" role="radiogroup" aria-label={t("speed")}>
+                    {[true, false].map((f) => (
+                      <button key={String(f)} type="button" role="radio" aria-checked={fast === f} onClick={() => setFast(f)}
+                        className={`rounded-[12px] border px-3 py-2.5 text-left transition-colors ${fast === f ? "border-primary ring-1 ring-primary" : "border-rule hover:border-ink-2/40"}`}>
+                        <div className="text-sm font-semibold">{f ? t("fast") : t("standard")}</div>
+                        <div className="mt-0.5 text-xs leading-snug text-ink-2">{f ? t("fastDesc") : t("standardDesc")}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Relayer */}
+                <div className="flex items-start justify-between gap-4 border-t border-rule pt-4">
+                  <div>
+                    <div className="text-sm font-medium">{t("relayer")}</div>
+                    <div className="mt-0.5 text-sm text-ink-2">{!relayerAvailable ? t("relayerUnavailable") : useRelayer ? t("relayerOn") : t("relayerOff")}</div>
+                  </div>
+                  <Switch checked={useRelayer} disabled={!relayerAvailable} onCheckedChange={setRelayer} aria-label={t("relayer")} />
+                </div>
+              </fieldset>
+            )}
+          </section>
+
+          {/* RECEIPT */}
+          <aside className="rounded-[20px] border border-rule bg-sheet p-5 sm:p-6" aria-label={t("receipt")} aria-live="polite">
+            {phase.kind === "form" ? (
+              <>
+                <ReceiptRow k={t("youSend")} v={amount && Number(amount) > 0 ? `${fmt(amount)} ${token}` : `0 ${token}`} strong />
+                <div className="mt-3 min-h-[92px] space-y-2.5">
+                  {!srcAdapter ? (
+                    <p className="text-sm text-ink-2">{t("connectToEstimate")}</p>
+                  ) : validation ? (
+                    <p className="text-sm text-ink-2">{t("estimateHint")}</p>
+                  ) : est.loading ? (
+                    <><SkelRow /><SkelRow /><SkelRow /></>
+                  ) : est.error ? (
+                    <p className="break-words text-sm text-err">{est.error}</p>
+                  ) : est.data ? (
+                    <>
+                      {feeRows.length === 0 ? <ReceiptRow k={t("fees")} v={`0 ${token}`} /> : null}
+                      {feeRows.map((f, i) => <ReceiptRow key={i} k={feeLabel(f.type)} v={`${fmt(f.amount)} ${f.token}`} />)}
+                      {gasByChain.map((g, i) => <ReceiptRow key={i} k={fill(t("networkGas"), { chain: g.chain })} v={`${fmt(g.val, 6)} ${g.sym}`} />)}
+                    </>
+                  ) : null}
+                </div>
+                <div className="tear my-4" aria-hidden />
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="text-sm font-medium">{t("youReceive")}</span>
+                  <span className="num font-display text-xl font-semibold">
+                    {est.loading ? <span className="skeleton inline-block h-6 w-24 align-middle" /> : est.data && !validation ? `≈ ${fmt(receive)}` : "—"}
+                    <span className="ml-1.5 text-base text-ink-2">{token}</span>
+                  </span>
+                </div>
+                <div className="mt-1 flex justify-between text-sm text-ink-2">
+                  <span>{t("arrivesIn")}</span>
+                  <span>{fast ? t("arrivalFast") : t("arrivalStandard")}</span>
+                </div>
+                <PrimaryButton className="mt-6" disabled={!ctaEnabled} onClick={onCta}>{ctaLabel}</PrimaryButton>
+              </>
+            ) : phase.kind === "running" ? (
+              <>
+                <div className="flex items-baseline justify-between gap-3">
+                  <h2 className="font-display text-lg font-semibold">{t("progress")}</h2>
+                  <span className="num text-sm text-ink-2">{fmt(phase.amount)} {phase.token}</span>
+                </div>
+                <div className="mt-5">
+                  {phase.steps.length === 0 ? (
+                    <p className="flex items-center gap-2 text-sm text-ink-2"><Loader2 className="size-4 animate-spin" />{t("starting")}</p>
+                  ) : (
+                    <StepTracker steps={phase.steps} explorerFor={explorerFor({ from: phase.from, to: phase.to })} />
+                  )}
+                </div>
+                <div className="tear my-4" aria-hidden />
+                <p className="text-sm text-ink-2">{t("keepOpen")}</p>
+              </>
+            ) : phase.kind === "done" ? (
+              <>
+                <div className="flex items-center gap-3">
+                  <ChainMark chain={phase.result.destination.chain} size={44} />
+                  <div>
+                    <div className="text-sm font-medium text-ok">{t("success")}</div>
+                    <div className="num font-display text-lg font-semibold leading-snug">
+                      {fill(t("receivedOn"), { amount: fmt(receive || phase.result.amount), token: phase.result.token, chain: L(phase.result.destination.chain).name })}
+                    </div>
+                  </div>
+                </div>
+                <div className="tear my-5" aria-hidden />
+                <StepTracker steps={phase.result.steps} showTimes={false} explorerFor={explorerFor({ from: phase.result.source.chain, to: phase.result.destination.chain })} />
+                <PrimaryButton className="mt-4" onClick={reset}>{t("bridgeAgain")}</PrimaryButton>
+              </>
+            ) : (
+              <>
+                <h2 className={`font-display text-lg font-semibold ${phase.rejected ? "" : "text-err"}`}>{phase.rejected ? t("rejected") : t("failed")}</h2>
+                {!phase.rejected ? <p className="mt-1 break-words text-sm text-ink-2">{phase.message}</p> : null}
+                {phase.result ? (
+                  <div className="mt-5">
+                    <StepTracker steps={phase.result.steps} showTimes={false} explorerFor={explorerFor({ from: phase.result.source.chain, to: phase.result.destination.chain })} />
                   </div>
                 ) : null}
-              </div>
-
-              {/* Speed */}
-              <div className="space-y-1.5">
-                <FieldLabel>{t("speed")}</FieldLabel>
-                <div className="grid grid-cols-2 gap-2">
-                  {[true, false].map((f) => (
-                    <button key={String(f)} type="button" onClick={() => setFast(f)}
-                      className={`rounded-lg border px-3 py-2.5 text-left transition-colors ${fast === f ? "border-primary bg-accent" : "bg-surface hover:border-primary/40"}`}>
-                      <div className="text-sm font-medium">{f ? t("fast") : t("standard")}</div>
-                      <div className="mt-0.5 text-xs leading-snug text-muted-foreground">{f ? t("fastDesc") : t("standardDesc")}</div>
-                    </button>
-                  ))}
+                <div className="mt-4 space-y-2">
+                  {phase.result && phase.result.state !== "success" ? (
+                    <PrimaryButton disabled={running} onClick={() => retryResult(phase.result!, phase.entryId)}>{t("retry")}</PrimaryButton>
+                  ) : null}
+                  <Button variant="ghost" className="h-11 w-full rounded-[12px]" onClick={reset}>{t("close")}</Button>
                 </div>
-              </div>
-
-              {/* Relayer */}
-              <div className="flex items-start justify-between gap-3 rounded-lg border bg-surface px-3 py-2.5">
-                <div>
-                  <div className="text-sm">{t("relayer")}</div>
-                  <div className="mt-0.5 text-xs text-muted-foreground">{!relayerAvailable ? t("relayerUnavailable") : useRelayer ? t("relayerOn") : t("relayerOff")}</div>
-                </div>
-                <Switch checked={useRelayer} disabled={!relayerAvailable} onCheckedChange={setRelayer} aria-label={t("relayer")} />
-              </div>
-
-              {/* Estimate */}
-              <div className="rounded-lg border px-3 py-2.5 text-sm">
-                {!srcAdapter ? (
-                  <div className="text-xs text-muted-foreground">{t("connectToEstimate")}</div>
-                ) : validation ? (
-                  <div className="text-xs text-muted-foreground">{t(validation)}</div>
-                ) : est.loading ? (
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="size-3.5 animate-spin" />{t("estimating")}</div>
-                ) : est.error ? (
-                  <div className="text-xs text-destructive break-words">{est.error}</div>
-                ) : est.data ? (
-                  <EstimateView feeRows={feeRows} feeLabel={feeLabel} gasRows={gasRows} receive={receive} token={token} t={t} />
-                ) : null}
-              </div>
-
-              <Button className="w-full" size="lg" disabled={!canBridge} onClick={() => { setChecked(false); setConfirmOpen(true); }}>
-                {t("bridge")}
-              </Button>
-            </div>
-          ) : phase.kind === "running" ? (
-            <div className="space-y-4">
-              <div className="flex items-center gap-2 text-sm font-medium"><Loader2 className="size-4 animate-spin text-primary" />{t("progress")}</div>
-              <RouteLine token={phase.token} amount={phase.amount} from={phase.from} to={phase.to} />
-              {phase.steps.length === 0 ? <div className="text-xs text-muted-foreground">{t("starting")}</div> : <StepList steps={phase.steps} explorerFor={explorerFor({ from: phase.from, to: phase.to })} />}
-              <p className="text-xs text-muted-foreground">{t("keepOpen")}</p>
-            </div>
-          ) : phase.kind === "done" ? (
-            <div className="space-y-4">
-              <div className="rounded-lg border border-success/40 px-3 py-3">
-                <div className="text-sm font-medium text-success">{t("success")}</div>
-                <div className="mt-1 font-mono text-lg">{t("received")}: ≈ {fmt(receive || phase.result.amount)} {phase.result.token}</div>
-              </div>
-              <RouteLine token={phase.result.token} amount={phase.result.amount} from={phase.result.source.chain} to={phase.result.destination.chain} />
-              <StepList steps={phase.result.steps} explorerFor={explorerFor({ from: phase.result.source.chain, to: phase.result.destination.chain })} />
-              <Button className="w-full" onClick={reset}>{t("bridgeAgain")}</Button>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              <div className={`rounded-lg border px-3 py-3 ${phase.rejected ? "" : "border-destructive/40"}`}>
-                <div className={`text-sm font-medium ${phase.rejected ? "text-foreground" : "text-destructive"}`}>{phase.rejected ? t("rejected") : t("failed")}</div>
-                {!phase.rejected ? <div className="mt-1 break-words text-xs text-muted-foreground">{phase.message}</div> : null}
-              </div>
-              {phase.result ? <StepList steps={phase.result.steps} explorerFor={explorerFor({ from: phase.result.source.chain, to: phase.result.destination.chain })} /> : null}
-              <div className="flex gap-2">
-                {phase.result && phase.result.state !== "success" ? (
-                  <Button className="flex-1" disabled={running} onClick={() => retryResult(phase.result!, phase.entryId)}>{t("retry")}</Button>
-                ) : null}
-                <Button variant="outline" className="flex-1" onClick={reset}>{t("close")}</Button>
-              </div>
-            </div>
-          )}
-        </section>
+              </>
+            )}
+          </aside>
+        </div>
 
         {/* History */}
-        <section className="mt-6">
-          <h2 className="mb-3 text-sm font-medium text-muted-foreground">{t("history")}</h2>
+        <section className="mt-10">
+          <h2 className="font-display text-lg font-semibold">{t("history")}</h2>
           {history.length === 0 ? (
-            <div className="rounded-xl border px-4 py-6 text-center text-xs text-muted-foreground">{t("noHistory")}</div>
+            <p className="mt-3 text-sm text-ink-2">{t("noHistory")}</p>
           ) : (
-            <ul className="space-y-2">
+            <ul className="mt-3 divide-y divide-rule rounded-[16px] border border-rule bg-sheet">
               {history.map((h) => {
                 const r = h.result;
                 const st = r.state;
                 const inProgress = st === "pending" && r.steps.some((s) => (s.name === "burn" || s.name === "transfer") && !!s.txHash);
+                const tone = st === "success" ? "text-ok bg-ok/10" : st === "error" ? "text-err bg-err/10" : "text-warn bg-warn/10";
                 return (
-                  <li key={h.id} className="rounded-xl border bg-card px-3 py-3">
-                    <div className="flex items-center gap-2 text-sm">
-                      <span className="font-mono">{fmt(r.amount)} {r.token}</span>
-                      <span className={`ml-auto rounded-full px-2 py-0.5 text-[11px] ${st === "success" ? "bg-success/15 text-success" : st === "error" ? "bg-destructive/15 text-destructive" : "bg-warning/15 text-warning"}`}>
-                        {inProgress ? t("status_inprogress") : t(`status_${st}` as TKey)}
-                      </span>
+                  <li key={h.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
+                    <div className="flex items-center -space-x-2">
+                      <ChainMark chain={r.source.chain} size={28} />
+                      <ChainMark chain={r.destination.chain} size={28} />
                     </div>
-                    <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-                      <ChainBadge name={L(r.source.chain).name} size={16} />{L(r.source.chain).name}
-                      <span>→</span>
-                      <ChainBadge name={L(r.destination.chain).name} size={16} />{L(r.destination.chain).name}
-                      <span className="ml-auto">{new Date(h.createdAt).toLocaleString(lang === "ru" ? "ru-RU" : "en-US", { dateStyle: "short", timeStyle: "short" })}</span>
+                    <div className="min-w-0 flex-1">
+                      <div className="num text-base font-semibold">{fmt(r.amount)} {r.token}</div>
+                      <div className="truncate text-sm text-ink-2">
+                        {L(r.source.chain).name} {lang === "ru" ? "в" : "to"} {L(r.destination.chain).name}
+                        <span className="num ml-2">{new Date(h.createdAt).toLocaleString(locale, { dateStyle: "short", timeStyle: "short" })}</span>
+                      </div>
                     </div>
-                    <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
+                    <span className={`rounded-[8px] px-2 py-0.5 text-xs font-medium ${tone}`}>
+                      {inProgress ? t("status_inprogress") : t(`status_${st}` as TKey)}
+                    </span>
+                    <div className="flex items-center">
                       {r.steps.filter((s) => s.txHash).map((s, i) => {
                         const url = explorerFor({ from: r.source.chain, to: r.destination.chain })(s);
                         return url ? (
-                          <a key={i} href={url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
-                            {stepLabel(t, s.name)} <ExternalLink className="size-3" />
+                          <a key={i} href={url} target="_blank" rel="noreferrer" title={stepLabel(t, s.name)} aria-label={`${stepLabel(t, s.name)}: ${t("explorer")}`}
+                            className="inline-flex size-8 items-center justify-center rounded-[8px] text-ink-2 hover:bg-tint hover:text-primary">
+                            <ExternalLink className="size-3.5" />
                           </a>
                         ) : null;
                       })}
                     </div>
                     {st !== "success" ? (
-                      <Button size="sm" variant="outline" className="mt-2" disabled={running} onClick={() => retryResult(r, h.id, h.createdAt, h.network)}>
+                      <Button size="sm" variant="outline" className="rounded-[8px] border-rule" disabled={running} onClick={() => retryResult(r, h.id, h.createdAt, h.network)}>
                         {t("resume")}
                       </Button>
                     ) : null}
@@ -734,44 +852,57 @@ export function BridgeApp() {
         </section>
       </main>
 
-      <footer className="border-t">
-        <div className="mx-auto max-w-[640px] px-4 py-6 text-center text-[11px] leading-relaxed text-muted-foreground">
+      <footer>
+        <div className="mx-auto max-w-[64ch] px-4 pb-10 text-center text-xs leading-relaxed text-ink-2">
           <p>{t("footer")}</p>
-          <p className="mt-2 flex justify-center gap-4">
-            <a className="hover:text-foreground underline underline-offset-2" href="https://developers.circle.com/cctp" target="_blank" rel="noreferrer">developers.circle.com/cctp</a>
-            <a className="hover:text-foreground underline underline-offset-2" href="https://docs.arc.io/app-kit/bridge" target="_blank" rel="noreferrer">docs.arc.io/app-kit/bridge</a>
+          <p className="mt-2 flex flex-wrap justify-center gap-x-4 gap-y-1">
+            <a className="underline underline-offset-2 hover:text-ink" href="https://developers.circle.com/cctp" target="_blank" rel="noreferrer">developers.circle.com/cctp</a>
+            <a className="underline underline-offset-2 hover:text-ink" href="https://docs.arc.io/app-kit/bridge" target="_blank" rel="noreferrer">docs.arc.io/app-kit/bridge</a>
           </p>
         </div>
       </footer>
 
       {/* Confirm */}
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <DialogContent className="max-w-[440px]">
-          <DialogHeader>
-            <DialogTitle>{t("confirmTitle")}</DialogTitle>
+        <DialogContent className="gap-0 rounded-[20px] border-rule bg-sheet p-0 sm:max-w-[460px] max-sm:top-auto max-sm:bottom-0 max-sm:translate-y-0 max-sm:rounded-b-none">
+          <DialogHeader className="px-6 pt-6 text-left">
+            <DialogTitle className="text-sm font-medium text-ink-2">{t("confirmTitle")}</DialogTitle>
             <DialogDescription className="sr-only">{t("confirmTitle")}</DialogDescription>
           </DialogHeader>
           {from && to ? (
-            <div className="space-y-3 text-sm">
-              <Row k={t("amount")} v={<span className="font-mono">{amount} {token}</span>} />
-              <Row k={t("from")} v={<span className="flex items-center gap-1.5"><ChainBadge name={L(from).name} size={16} />{L(from).name}</span>} />
-              <AddrRow k={t("sender")} a={srcAddress ?? ""} />
-              <Row k={t("to")} v={<span className="flex items-center gap-1.5"><ChainBadge name={L(to).name} size={16} />{L(to).name}</span>} />
-              <AddrRow k={t("recipient")} a={recipient} />
-              <Row k={t("speed")} v={fast ? t("fast") : t("standard")} />
-              <Row k={t("relayer")} v={useRelayer ? t("on") : t("off")} />
-              {feeRows.map((f, i) => <Row key={i} k={feeLabel(f.type)} v={<span className="font-mono">{fmt(f.amount)} {f.token}</span>} />)}
-              <Row k={t("receive")} v={<span className="font-mono text-primary">{fmt(receive)} {token}</span>} />
+            <div className="max-h-[80vh] overflow-y-auto px-6 pb-6">
+              <div className="font-display-amount mt-1">{fmt(amount)} <span className="text-xl text-ink-2">{token}</span></div>
+              <div className="mt-5"><RouteStrip from={from} to={to} progress={0} active={false} /></div>
+              <div className="mt-2 flex justify-between text-sm text-ink-2"><span>{L(from).name}</span><span>{L(to).name}</span></div>
+
+              <div className="mt-5 space-y-3">
+                <AddrBlock k={t("sender")} a={srcAddress ?? ""} />
+                <AddrBlock k={t("recipient")} a={recipient} />
+              </div>
+
+              <div className="mt-5 space-y-2.5">
+                <ReceiptRow k={t("speed")} v={fast ? t("fast") : t("standard")} />
+                <ReceiptRow k={t("relayer")} v={useRelayer ? t("on") : t("off")} />
+                {feeRows.map((f, i) => <ReceiptRow key={i} k={feeLabel(f.type)} v={`${fmt(f.amount)} ${f.token}`} />)}
+              </div>
+              <div className="tear my-4" aria-hidden />
+              <div className="flex items-baseline justify-between">
+                <span className="text-sm font-medium">{t("youReceive")}</span>
+                <span className="num font-display text-xl font-semibold">≈ {fmt(receive)} <span className="text-base text-ink-2">{token}</span></span>
+              </div>
+
               {network === "mainnet" ? (
-                <div className="flex gap-2 rounded-lg border border-warning/40 px-3 py-2 text-xs text-warning"><TriangleAlert className="size-4 shrink-0" />{t("realFunds")}</div>
+                <div className="mt-5 flex gap-2.5 rounded-[12px] bg-warn/10 px-3 py-2.5 text-sm text-warn">
+                  <TriangleAlert className="mt-0.5 size-4 shrink-0" />{t("realFunds")}
+                </div>
               ) : null}
-              <label className="flex items-center gap-2 text-sm">
+              <label className="mt-4 flex cursor-pointer items-center gap-2.5 text-sm">
                 <Checkbox checked={checked} onCheckedChange={(v) => setChecked(v === true)} />
                 {t("checkedRecipient")}
               </label>
-              <div className="flex gap-2 pt-1">
-                <Button variant="outline" className="flex-1" onClick={() => setConfirmOpen(false)}>{t("cancel")}</Button>
-                <Button className="flex-1" disabled={!checked} onClick={startBridge}>{t("confirm")}</Button>
+              <div className="mt-5 flex gap-2">
+                <Button variant="ghost" className="h-[52px] flex-1 rounded-[12px]" onClick={() => setConfirmOpen(false)}>{t("cancel")}</Button>
+                <PrimaryButton className="flex-[2]" disabled={!checked} onClick={startBridge}>{t("confirm")}</PrimaryButton>
               </div>
             </div>
           ) : null}
@@ -781,70 +912,53 @@ export function BridgeApp() {
   );
 }
 
-function FieldLabel({ children }: { children: React.ReactNode }) {
-  return <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{children}</div>;
+function ReceiptRow({ k, v, strong = false }: { k: string; v: React.ReactNode; strong?: boolean }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 text-sm">
+      <span className={strong ? "font-medium" : "text-ink-2"}>{k}</span>
+      <span className={`num text-right ${strong ? "text-base font-semibold" : ""}`}>{v}</span>
+    </div>
+  );
 }
-
-function Row({ k, v }: { k: string; v: React.ReactNode }) {
-  return <div className="flex items-center justify-between gap-3"><span className="text-muted-foreground">{k}</span><span className="text-right">{v}</span></div>;
+function SkelRow() {
+  return <div className="flex items-center justify-between"><span className="skeleton h-3.5 w-28" /><span className="skeleton h-3.5 w-16" /></div>;
 }
-function AddrRow({ k, a }: { k: string; a: string }) {
+function AddrBlock({ k, a }: { k: string; a: string }) {
   return (
     <div>
-      <div className="text-muted-foreground">{k}</div>
-      <div className="mt-0.5 flex items-center gap-1 break-all rounded-md bg-surface px-2 py-1.5 font-mono text-xs">{a}<CopyButton text={a} /></div>
-    </div>
-  );
-}
-
-function RouteLine({ token, amount, from, to }: { token: string; amount: string; from: ChainDefinition; to: ChainDefinition }) {
-  return (
-    <div className="flex flex-wrap items-center gap-2 text-sm">
-      <span className="font-mono">{amount} {token}</span>
-      <span className="flex items-center gap-1.5 text-muted-foreground"><ChainBadge name={L(from).name} size={16} />{L(from).name} → <ChainBadge name={L(to).name} size={16} />{L(to).name}</span>
-    </div>
-  );
-}
-
-function EstimateView({ feeRows, feeLabel, gasRows, receive, token, t }: {
-  feeRows: Est["fees"]; feeLabel: (s: string) => string; gasRows: { name: string; chain: string; val: number; sym: string }[]; receive: number; token: string; t: (k: TKey) => string;
-}) {
-  return (
-    <div className="space-y-1.5 text-xs">
-      {feeRows.length === 0 ? <Row k={t("fees")} v={<span className="font-mono">0</span>} /> : null}
-      {feeRows.map((f, i) => <Row key={i} k={feeLabel(f.type)} v={<span className="font-mono">{fmt(f.amount)} {f.token}</span>} />)}
-      {gasRows.map((g, i) => <Row key={i} k={`${t("gas")} · ${stepLabel(t, g.name)} · ${g.chain}`} v={<span className="font-mono">{fmt(g.val, 8)} {g.sym}</span>} />)}
-      <div className="flex items-center justify-between border-t pt-2 text-sm">
-        <span>{t("receive")}</span>
-        <span className="font-mono text-primary">{fmt(receive)} {token}</span>
+      <div className="text-sm text-ink-2">{k}</div>
+      <div className="mt-1 flex items-start gap-1 rounded-[12px] bg-tint px-3 py-2.5 font-mono text-[13px] leading-relaxed break-all">
+        <span className="flex-1">{a}</span><CopyButton text={a} />
       </div>
     </div>
   );
 }
 
-function Seg({ value, options, onChange, disabled = false }: { value: string; options: [string, string][]; onChange: (v: string) => void; disabled?: boolean }) {
+function PrimaryButton({ className = "", disabled, onClick, children }: { className?: string; disabled?: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
-    <div className="inline-flex rounded-lg border bg-surface p-0.5" role="group">
-      {options.map(([v, label]) => (
-        <button key={v} type="button" aria-pressed={value === v} disabled={disabled} onClick={() => onChange(v)}
-          className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${value === v ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>
-          {label}
-        </button>
-      ))}
-    </div>
+    <button type="button" disabled={disabled} onClick={onClick}
+      className={`inline-flex h-[52px] w-full items-center justify-center rounded-[12px] bg-primary px-4 text-base font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:bg-tint disabled:text-ink-2 disabled:opacity-100 ${className}`}>
+      {children}
+    </button>
   );
 }
 
-function ConnectedPill({ label, icon, address, onDisconnect, disabled = false }: { label: string; icon?: string | undefined; address: string; onDisconnect: () => void; disabled?: boolean }) {
+function WalletChip({ label, icon, address, onDisconnect, disabled = false }: { label: string; icon?: string | undefined; address: string; onDisconnect: () => void; disabled?: boolean }) {
   const { t } = useT();
   return (
-    <div className="inline-flex items-center gap-1.5 rounded-lg border bg-surface py-1 pl-2 pr-1 text-xs">
-      {icon ? <img src={icon} alt="" className="size-4 rounded" /> : <span className="text-muted-foreground">{label}</span>}
-      <span className="font-mono">{shortAddr(address)}</span>
-      <CopyButton text={address} />
-      <button type="button" onClick={onDisconnect} disabled={disabled} aria-label={t("disconnect")} title={t("disconnect")} className="inline-flex size-6 items-center justify-center rounded text-muted-foreground hover:text-destructive disabled:pointer-events-none disabled:opacity-40">
-        <LogOut className="size-3.5" />
-      </button>
-    </div>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button type="button" className="inline-flex h-9 items-center gap-2 rounded-[10px] border border-rule bg-sheet px-2.5 text-sm font-medium" aria-label={`${label} ${address}`}>
+          {icon ? <img src={icon} alt="" className="size-5 rounded-[6px]" /> : <Wallet className="size-4 text-ink-2" />}
+          <span className="num">{shortAddr(address)}</span>
+          <ChevronDown className="size-3.5 text-ink-2" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-48 rounded-[12px] border-rule bg-sheet">
+        <DropdownMenuLabel className="font-medium text-ink-2">{label}</DropdownMenuLabel>
+        <DropdownMenuItem onSelect={() => { navigator.clipboard?.writeText(address).catch(() => {}); }} className="gap-2"><Copy className="size-4" />{t("copyAddress")}</DropdownMenuItem>
+        <DropdownMenuItem disabled={disabled} onSelect={onDisconnect} className="gap-2 text-err focus:text-err"><LogOut className="size-4" />{t("disconnect")}</DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
