@@ -81,6 +81,7 @@ const en = {
   status_success: "Success",
   status_pending: "Pending",
   status_error: "Error",
+  status_inprogress: "In progress — Resume",
   howItWorks: "How it works",
   howBody:
     "Your tokens are burned on the source chain. Circle's attestation service observes the burn and signs it, then the same amount is natively minted on the destination chain. No wrapped tokens, no liquidity pools.",
@@ -186,6 +187,7 @@ const ru: Dict = {
   status_success: "Успешно",
   status_pending: "В процессе",
   status_error: "Ошибка",
+  status_inprogress: "В процессе — продолжите",
   howItWorks: "Как это работает",
   howBody:
     "Токены сжигаются в исходной сети. Сервис аттестации Circle фиксирует сжигание и подписывает его, после чего та же сумма нативно минтится в сети назначения. Никаких обёрнутых токенов и пулов ликвидности.",
