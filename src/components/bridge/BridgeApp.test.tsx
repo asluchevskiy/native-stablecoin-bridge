@@ -254,7 +254,7 @@ describe("transfer session", () => {
     expect(header).toHaveAttribute("href", repo);
     expect(header).toHaveAttribute("target", "_blank");
     expect(header).toHaveAttribute("rel", expect.stringContaining("noopener"));
-    expect(within(header).getByRole("presentation")).toBeInTheDocument();
+    expect(header.querySelector("svg")).toBeInTheDocument();
     const footer = screen.getByRole("link", { name: "Open source on GitHub" });
     expect(footer).toHaveAttribute("href", repo);
     expect(footer).toHaveAttribute("rel", expect.stringContaining("noopener"));
