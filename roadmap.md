@@ -9,7 +9,7 @@
 - [ ] Real wallet/mainnet execution check — blocked by absence of a wallet extension and user-authorized funds.
 
 ## Usage fixes
-- [ ] History menus, protected removal, five-second Undo and clear completed.
-- [ ] Neutral unknown status for saved transfers that cannot resume.
-- [ ] Wallet-independent estimates, isolated estimate adapter and public USDC fee fallback.
-- [ ] Route-specific arrival text; tests, browser checks and automatic build validation.
+- [x] History menus, protected removal, five-second Undo and clear completed.
+- [x] Neutral unknown status for saved transfers that cannot resume.
+- [x] Wallet-independent estimates, isolated estimate adapter and public USDC fee fallback.
+- [x] Route-specific arrival text; 53 tests passed, live wallet-free estimates and history interactions verified, automatic build validation passed.
