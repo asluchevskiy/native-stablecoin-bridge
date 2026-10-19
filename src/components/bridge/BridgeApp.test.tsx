@@ -116,7 +116,7 @@ describe("transfer session", () => {
     emit(first.id, "transfer", { transactionHash: "0xretained" });
     await act(async () => { fixtures.transfers[0]?.reject(new Error("Polling unavailable")); });
     expect(loadHistory().find((h) => h.id === first.id)?.result.steps).toMatchObject([{ name: "transfer", state: "success", txHash: "0xretained" }]);
-    fireEvent.click(screen.getByRole("button", { name: "Retry", exact: undefined }));
+    fireEvent.click(screen.getByRole("button", { name: /^Retry$/ }));
     await waitFor(() => expect(fixtures.kit.retry).toHaveBeenCalled());
     expect(fixtures.kit.bridge).toHaveBeenCalledTimes(1);
     await act(async () => { fixtures.transfers[1]?.resolve({ ...first.result, state: "success" }); });
