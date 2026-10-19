@@ -5,71 +5,147 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-  --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, monospace;
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
-  --radius-2xl: calc(var(--radius) + 8px);
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-card: var(--card);
-  --color-card-foreground: var(--card-foreground);
-  --color-popover: var(--popover);
-  --color-popover-foreground: var(--popover-foreground);
+  --font-sans: "Funnel Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Funnel Display", "Funnel Sans", ui-sans-serif, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+
+  --text-xs: 12px;
+  --text-sm: 14px;
+  --text-base: 16px;
+  --text-lg: 20px;
+  --text-xl: 28px;
+  --text-amount: 44px;
+
+  --radius-chip: 8px;
+  --radius-field: 12px;
+  --radius-slip: 20px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 20px;
+
+  --shadow-slip: var(--slip-shadow);
+
+  --color-paper: var(--paper);
+  --color-sheet: var(--sheet);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-rule: var(--rule);
+  --color-tint: var(--tint);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-err: var(--err);
+  --color-usdc: var(--usdc);
+  --color-eurc: var(--eurc);
+
+  --color-background: var(--paper);
+  --color-foreground: var(--ink);
+  --color-card: var(--sheet);
+  --color-card-foreground: var(--ink);
+  --color-popover: var(--sheet);
+  --color-popover-foreground: var(--ink);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
-  --color-secondary: var(--secondary);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-destructive: var(--destructive);
-  --color-destructive-foreground: var(--destructive-foreground);
-  --color-success: var(--success);
-  --color-warning: var(--warning);
-  --color-surface: var(--surface);
-  --color-border: var(--border);
-  --color-input: var(--input);
-  --color-ring: var(--ring);
-  --color-ring-offset-background: var(--background);
+  --color-secondary: var(--tint);
+  --color-secondary-foreground: var(--ink);
+  --color-muted: var(--tint);
+  --color-muted-foreground: var(--ink-2);
+  --color-accent: var(--tint);
+  --color-accent-foreground: var(--ink);
+  --color-destructive: var(--err);
+  --color-destructive-foreground: var(--sheet);
+  --color-border: var(--rule);
+  --color-input: var(--rule);
+  --color-ring: var(--primary);
+  --color-ring-offset-background: var(--sheet);
 }
 
 :root {
-  --radius: 0.75rem;
-  --background: oklch(0.17 0.004 260);
-  --foreground: oklch(0.94 0.005 260);
-  --card: oklch(0.205 0.005 260);
-  --card-foreground: oklch(0.94 0.005 260);
-  --surface: oklch(0.235 0.006 260);
-  --popover: oklch(0.22 0.006 260);
-  --popover-foreground: oklch(0.94 0.005 260);
-  --primary: oklch(0.76 0.12 185);
-  --primary-foreground: oklch(0.18 0.03 190);
-  --secondary: oklch(0.26 0.006 260);
-  --secondary-foreground: oklch(0.92 0.005 260);
-  --muted: oklch(0.25 0.005 260);
-  --muted-foreground: oklch(0.66 0.01 260);
-  --accent: oklch(0.28 0.02 190);
-  --accent-foreground: oklch(0.94 0.005 260);
-  --destructive: oklch(0.66 0.19 25);
-  --destructive-foreground: oklch(0.98 0 0);
-  --success: oklch(0.76 0.14 155);
-  --warning: oklch(0.8 0.13 80);
-  --border: oklch(1 0 0 / 8%);
-  --input: oklch(1 0 0 / 12%);
-  --ring: oklch(0.76 0.12 185 / 60%);
+  --paper: #f3f6f8;
+  --sheet: #ffffff;
+  --ink: #14213d;
+  --ink-2: #56627a;
+  --rule: #dce3ea;
+  --tint: #eef2f6;
+  --usdc: #2775ca;
+  --eurc: #3348b5;
+  --ok: #1f8a5b;
+  --warn: #b26b00;
+  --err: #c2362f;
+  --primary: var(--usdc);
+  --primary-foreground: #ffffff;
+  --slip-shadow: 0 1px 2px rgba(20, 33, 61, 0.06), 0 12px 32px -12px rgba(20, 33, 61, 0.12);
+  --radius: 12px;
+}
+:root[data-token="eurc"] { --primary: var(--eurc); }
+
+.dark {
+  --paper: #0f1520;
+  --sheet: #161e2b;
+  --ink: #e8edf4;
+  --ink-2: #98a3b7;
+  --rule: #263042;
+  --tint: #1d2738;
+  --usdc: #5a9be0;
+  --eurc: #7383e6;
+  --ok: #4cc08a;
+  --warn: #e0a23c;
+  --err: #ef6b62;
+  --primary-foreground: #0f1520;
+  --slip-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 12px 32px -12px rgba(0, 0, 0, 0.5);
 }
 
 @layer base {
-  * { border-color: var(--color-border); }
-  html { color-scheme: dark; }
+  * { border-color: var(--color-rule); }
+  html { color-scheme: light; }
+  html.dark { color-scheme: dark; }
   body {
-    background-color: var(--color-background);
-    color: var(--color-foreground);
+    background-color: var(--paper);
+    color: var(--ink);
     font-family: var(--font-sans);
+    font-size: 15px;
     overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
   }
+  :focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
+}
+
+@utility num { font-variant-numeric: tabular-nums; }
+@utility font-display-amount {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 44px;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+@utility tear {
+  background-image: linear-gradient(to right, var(--rule) 50%, transparent 0);
+  background-size: 10px 1px;
+  background-repeat: repeat-x;
+  height: 1px;
+}
+@utility skeleton {
+  background: var(--tint);
+  border-radius: 6px;
+}
+
+/* Route strip line: the one orchestrated motion */
+.route-fill {
+  transform-origin: left center;
+  transition: transform 900ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.route-pulse { animation: route-pulse 1.6s ease-in-out infinite; }
+@keyframes route-pulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
+.swap-rot { transition: transform 300ms ease; }
+@media (prefers-reduced-motion: reduce) {
+  .route-fill, .swap-rot { transition: none; }
+  .route-pulse { animation: none; opacity: 1; }
 }
