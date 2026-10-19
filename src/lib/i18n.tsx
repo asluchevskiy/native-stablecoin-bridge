@@ -142,6 +142,9 @@ const en = {
   relayOptOut: "Turn off to skip the relay fee — you'll sign the mint on {chain} yourself and need a little {sym} for gas.",
   totalCost: "Total cost in USD",
   partialCost: "Known costs only; some USD prices are unavailable.",
+  gasEstimateUnavailable: "The SDK does not provide a gas estimate for these steps. Your wallet shows the network cost before signing.",
+  usdUnavailable: "Total unavailable; some gas estimates or USD prices are missing.",
+  circleService: "Circle service fee",
 };
 type Dict = typeof en;
 export type TKey = keyof Dict;
@@ -288,6 +291,9 @@ const ru: Dict = {
   relayOptOut: "Отключите, чтобы не платить релейеру — вы сами подпишете минт в сети {chain}, где понадобится немного {sym} для газа.",
   totalCost: "Общая стоимость в USD",
   partialCost: "Только известные затраты; некоторые цены в USD недоступны.",
+  gasEstimateUnavailable: "SDK не предоставляет оценку газа для этих шагов. Кошелёк покажет стоимость сети перед подписью.",
+  usdUnavailable: "Итог недоступен: нет некоторых оценок газа или цен в USD.",
+  circleService: "Комиссия сервиса Circle",
 };
 
 type Lang = "en" | "ru";
