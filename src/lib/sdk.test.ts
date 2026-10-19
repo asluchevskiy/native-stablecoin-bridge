@@ -24,3 +24,7 @@ it("creates one in-memory estimate adapter and prohibits using it for execution"
   expect(mocks.retry).not.toHaveBeenCalled();
   expect(localStorage.getItem("privateKey")).toBeNull();
 });
+it("always passes forwarding for EURC estimate-only quotes even when relayer input is false", async () => {
+  await estimateWithoutWallet({ from: { chain: "Ethereum", type: "evm" } as ChainDefinition, to: { chain: "Base", type: "evm" } as ChainDefinition, amount: "10", token: "EURC", fast: true, relayer: false });
+  expect(mocks.estimate).toHaveBeenLastCalledWith(expect.objectContaining({ token: "EURC", to: expect.objectContaining({ useForwarder: true }) }));
+});

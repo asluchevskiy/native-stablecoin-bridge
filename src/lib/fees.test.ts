@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import type { ChainDefinition, EstimateResult } from "@circle-fin/bridge-kit";
-import { estimateCosts, fetchPublicFeeEstimate, publicFeeEstimate, validEstimateAmount } from "./fees";
+import { estimateCosts, fetchPublicFeeEstimate, publicFeeEstimate, totalCosts, validEstimateAmount } from "./fees";
 import { vi } from "vitest";
 const chain = (name: string) => ({ chain: name, name, nativeCurrency: { symbol: "ETH", decimals: 18 } }) as unknown as ChainDefinition;
 it("separates EURC native-token FORWARD and PRE_FINALITY quote fees without double counting", () => {
@@ -12,6 +12,20 @@ it("separates EURC native-token FORWARD and PRE_FINALITY quote fees without doub
 it("shows destination network gas only when minting without the relayer", () => {
   expect(estimateCosts(undefined, chain("Ethereum"), chain("Base"), "USDC", true).map((c) => c.chain)).toEqual(["Ethereum"]);
   expect(estimateCosts(undefined, chain("Ethereum"), chain("Base"), "USDC", false).map((c) => c.chain)).toEqual(["Ethereum", "Base"]);
+});
+it("forces EURC relay costs even with the switch off, fills missing gas and computes an estimated total", () => {
+  const estimate = { gasFees: [], fees: [{ type: "provider", token: "ETH", amount: "0.003" }], quote: { totalAmount: "3000", items: [{ type: "FORWARD", amount: "2000" }, { type: "PRE_FINALITY", amount: "1000" }] } } as unknown as EstimateResult<string, string>;
+  const costs = estimateCosts(estimate, chain("Ethereum"), chain("Base"), "EURC", false, { Ethereum: { amount: 0.000396, estimated: true, includesApproval: true } });
+  expect(costs.filter((c) => c.kind === "gas")).toEqual([{ kind: "gas", chain: "Ethereum", symbol: "ETH", amount: 0.000396, estimated: true, includesApproval: true }]);
+  expect(totalCosts(costs, { ETH: 2500 })).toEqual({ complete: true, amount: 8.49, estimated: true });
+  expect(totalCosts(costs, {})).toMatchObject({ complete: false });
+});
+it("keeps SDK gas authoritative and does not fabricate totals for missing lines", () => {
+  const estimate = { gasFees: [{ blockchain: "Ethereum", fees: { fee: "0.001" } }], fees: [] } as unknown as EstimateResult<string, string>;
+  const costs = estimateCosts(estimate, chain("Ethereum"), chain("Base"), "USDC", false, { Ethereum: { amount: 1, estimated: true, includesApproval: true } });
+  expect(costs[0]?.amount).toBe(0.001);
+  expect(costs[0]?.estimated).toBeUndefined();
+  expect(totalCosts(costs, { ETH: 2500 }).complete).toBe(false);
 });
 
 it("accepts positive amounts with at most six decimals independently of wallet or balance", () => {
