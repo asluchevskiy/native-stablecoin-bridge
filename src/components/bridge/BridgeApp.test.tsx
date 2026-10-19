@@ -6,6 +6,8 @@ import { BridgeApp } from "./BridgeApp";
 import { loadHistory } from "@/lib/history";
 import type { Result } from "@/lib/transfers";
 import { fetchBalances } from "@/lib/chains";
+import { estimateWithoutWallet } from "@/lib/sdk";
+import { Toaster } from "@/components/ui/sonner";
 
 const fixtures = vi.hoisted(() => {
   const chain = (name: string, id: number) => ({ chain: name, name, type: "evm", chainId: id, nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 }, explorerUrl: `https://${name.toLowerCase()}.example/tx/{hash}`, rpcEndpoints: ["https://rpc.example"], usdcAddress: "0x0000000000000000000000000000000000000001", eurcAddress: "0x0000000000000000000000000000000000000002", cctpx: {}, cctp: { forwarderSupported: { destination: true } } });
@@ -38,7 +40,7 @@ vi.mock("@/lib/chains", async (original) => ({ ...await original<typeof import("
 vi.mock("@/lib/wallets", async (original) => ({ ...await original<typeof import("@/lib/wallets")>(), discoverEvmWallets: (cb: (w: unknown[]) => void) => { cb([{ uuid: "wallet", rdns: "test.wallet", name: "Test wallet", provider: fixtures.provider }]); return () => {}; } }));
 vi.mock("@/lib/prices", async (original) => ({ ...await original<typeof import("@/lib/prices")>(), spotPrice: async (symbol: string) => symbol === "USDC" ? 1 : 2500 }));
 
-const mount = () => render(<I18nProvider><TooltipProvider><BridgeApp /></TooltipProvider></I18nProvider>);
+const mount = () => render(<I18nProvider><TooltipProvider><BridgeApp /><Toaster /></TooltipProvider></I18nProvider>);
 const emit = (id: string, method: string, values: object) => act(() => { for (const h of fixtures.handlers) h({ protocol: "cctpx", traceId: id, method, values }); });
 const pending = () => loadHistory().find((h) => h.result.state === "pending");
 async function confirm(amount: string) {
@@ -60,6 +62,7 @@ beforeEach(() => {
   fixtures.handlers.clear(); fixtures.transfers.length = 0;
   fixtures.kit.bridge.mockClear(); fixtures.kit.retry.mockClear();
   fixtures.kit.estimate.mockClear();
+  vi.mocked(estimateWithoutWallet).mockClear();
   fixtures.provider.request.mockReset();
   fixtures.provider.request.mockImplementation(async ({ method }: { method: string }) => method === "eth_accounts" || method === "eth_requestAccounts" ? ["0x1111111111111111111111111111111111111111"] : null);
   localStorage.setItem("nsb.wallet.evm", "test.wallet");
@@ -67,6 +70,40 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe("transfer session", () => {
+  it("estimates without a wallet and with an insufficient connected balance", async () => {
+    localStorage.removeItem("nsb.wallet.evm");
+    mount();
+    fireEvent.change(screen.getByLabelText("You send"), { target: { value: "600" } });
+    await waitFor(() => expect(estimateWithoutWallet).toHaveBeenCalled(), { timeout: 4000 });
+    expect(fixtures.kit.bridge).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "EVM wallet" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Test wallet" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Not enough USDC" })).toBeDisabled());
+    await waitFor(() => expect(fixtures.kit.estimate).toHaveBeenCalled(), { timeout: 4000 });
+    expect(fixtures.kit.bridge).not.toHaveBeenCalled();
+  });
+  it("hides Resume for legacy entries and supports immediate removal with Undo", async () => {
+    const [source, destination] = fixtures.kit.getSupportedChains();
+    localStorage.setItem("nsb.history.v1", JSON.stringify([{ id: "legacy", createdAt: 123, network: "mainnet", result: { state: "error", provider: "CCTPXBridgingProvider", token: "EURC", amount: "100", source: { address: "sender", chain: source }, destination: { address: "recipient", chain: destination, useForwarder: true }, steps: [{ name: "transfer", state: "pending" }] } }]));
+    mount();
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Resume transfer" })).not.toBeInTheDocument());
+    fireEvent.click(await screen.findByRole("button", { name: "More: 100 EURC" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Remove from history" }));
+    expect(loadHistory()).toHaveLength(0);
+    fireEvent.click(await screen.findByRole("button", { name: "Undo" }));
+    expect(loadHistory().map((h) => h.id)).toEqual(["legacy"]);
+  });
+  it("requires confirmation before removing an incomplete source transaction", async () => {
+    const [source, destination] = fixtures.kit.getSupportedChains();
+    localStorage.setItem("nsb.history.v1", JSON.stringify([{ id: "saved", createdAt: 123, network: "mainnet", result: { state: "pending", provider: "CCTPXBridgingProvider", token: "EURC", amount: "100", source: { address: "sender", chain: source }, destination: { address: "recipient", chain: destination, useForwarder: true }, steps: [{ name: "transfer", state: "success", txHash: "0xburn" }] } }]));
+    mount();
+    fireEvent.click(await screen.findByRole("button", { name: "More: 100 EURC" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Remove from history" }));
+    const dialog = screen.getByRole("dialog");
+    expect(loadHistory()).toHaveLength(1);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Keep" }));
+    expect(loadHistory()).toHaveLength(1);
+  });
   it("restores silently, runs two isolated EURC transfers, and completes background history", async () => {
     mount();
     await waitFor(() => expect(screen.getByLabelText(/Test wallet/)).toBeInTheDocument());
