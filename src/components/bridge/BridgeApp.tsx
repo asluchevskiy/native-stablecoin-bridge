@@ -256,6 +256,20 @@ export function BridgeApp() {
   }, [validation, srcAdapter, buildParams]);
 
   // Wallet actions
+  const evmListeners = useRef<{ provider: Eip1193; accounts: (...a: unknown[]) => void; chain: (...a: unknown[]) => void } | null>(null);
+  function detachEvmListeners() {
+    const l = evmListeners.current;
+    if (!l) return;
+    l.provider.removeListener?.("accountsChanged", l.accounts);
+    l.provider.removeListener?.("chainChanged", l.chain);
+    evmListeners.current = null;
+  }
+  function disconnectEvm() {
+    detachEvmListeners();
+    setEvm(null);
+    evmAdapter.current = null;
+  }
+  useEffect(() => () => detachEvmListeners(), []);
   async function connectEvm(w: EvmWalletInfo) {
     setWalletErr("");
     try {
@@ -263,11 +277,19 @@ export function BridgeApp() {
       if (!accts?.[0]) return;
       evmAdapter.current = await makeEvmAdapter(w.provider);
       setEvm({ info: w, address: accts[0] });
-      w.provider.on?.("accountsChanged", (a: unknown) => {
-        const list = a as string[];
-        if (!list?.[0]) { setEvm(null); evmAdapter.current = null; }
-        else setEvm((cur) => (cur ? { ...cur, address: list[0]! } : cur));
-      });
+      if (evmListeners.current?.provider !== w.provider) {
+        detachEvmListeners();
+        const accounts = (a: unknown) => {
+          const list = a as string[];
+          if (!list?.[0]) disconnectEvm();
+          else setEvm((cur) => (cur ? { ...cur, address: list[0]! } : cur));
+        };
+        // Chain switches are expected (we switch for source/mint); just refresh balances.
+        const chain = () => setBalNonce((n) => n + 1);
+        w.provider.on?.("accountsChanged", accounts);
+        w.provider.on?.("chainChanged", chain);
+        evmListeners.current = { provider: w.provider, accounts, chain };
+      }
     } catch (e) {
       setWalletErr(isUserRejection(e) ? t("rejected") : await errMsg(e));
     }
@@ -290,39 +312,62 @@ export function BridgeApp() {
   // History helpers
   const upsertHistory = (entry: HistoryEntry) => {
     setHistory((prev) => {
-      const next = [entry, ...prev.filter((e) => e.id !== entry.id)];
+      const exists = prev.some((e) => e.id === entry.id);
+      const next = exists ? prev.map((e) => (e.id === entry.id ? entry : e)) : [entry, ...prev];
+      saveHistory(next);
+      return next;
+    });
+  };
+  const removeHistory = (id: string) => {
+    setHistory((prev) => {
+      const next = prev.filter((e) => e.id !== id);
       saveHistory(next);
       return next;
     });
   };
 
-  async function run(exec: (kit: BridgeKit) => Promise<Result>, ctx: { entryId: string | null; token: string; amount: string; from: ChainDefinition; to: ChainDefinition; network: Network; createdAt?: number | undefined; initialSteps?: Step[] | undefined }) {
+  async function run(
+    exec: (kit: BridgeKit) => Promise<Result>,
+    ctx: { entryId: string; base: Result; network: Network; createdAt: number; fresh: boolean },
+  ) {
     setConfirmOpen(false);
-    setPhase({ kind: "running", entryId: ctx.entryId, steps: ctx.initialSteps ?? [], token: ctx.token, amount: ctx.amount, from: ctx.from, to: ctx.to });
+    // Live copy of the result, persisted on every SDK event so a reload can Resume.
+    let live: Result = { ...ctx.base, steps: [...ctx.base.steps] };
+    const persist = () => upsertHistory({ id: ctx.entryId, network: ctx.network, createdAt: ctx.createdAt, result: live });
+    persist();
+    const from = ctx.base.source.chain;
+    const to = ctx.base.destination.chain;
+    setPhase({ kind: "running", entryId: ctx.entryId, steps: live.steps, result: live, token: live.token, amount: live.amount, from, to });
     const { kit, sdk } = await loadSdk();
     const handler = (p: unknown) => {
-      const pl = p as { method?: string; values?: { name?: string; state?: Step["state"]; txHash?: string; explorerUrl?: string } };
+      const pl = p as { method?: string; values?: { name?: string; state?: Step["state"]; txHash?: string; explorerUrl?: string; data?: unknown } };
       const v = pl.values ?? {};
       const name = v.name ?? pl.method;
       if (!name) return;
-      setPhase((ph) =>
-        ph.kind === "running"
-          ? { ...ph, steps: mergeSteps(ph.steps, [{ name, state: v.state ?? "pending", ...(v.txHash ? { txHash: v.txHash } : {}), ...(v.explorerUrl ? { explorerUrl: v.explorerUrl } : {}) }]) }
-          : ph,
-      );
+      const step: Step = {
+        name,
+        state: v.state ?? "pending",
+        ...(v.txHash ? { txHash: v.txHash } : {}),
+        ...(v.explorerUrl ? { explorerUrl: v.explorerUrl } : {}),
+        ...(v.data !== undefined ? { data: v.data } : {}),
+      };
+      live = { ...live, steps: mergeSteps(live.steps, [step]) };
+      persist();
+      const snap = live;
+      setPhase((ph) => (ph.kind === "running" ? { ...ph, steps: snap.steps, result: snap } : ph));
     };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (kit as any).on("*", handler);
     try {
       const result = await exec(kit);
-      const id = ctx.entryId ?? crypto.randomUUID();
-      upsertHistory({ id, network: ctx.network, createdAt: ctx.createdAt ?? Date.now(), result });
-      if (result.state === "success") setPhase({ kind: "done", entryId: id, result });
+      live = result;
+      persist();
+      if (result.state === "success") setPhase({ kind: "done", entryId: ctx.entryId, result });
       else {
         const bad = result.steps.find((s) => s.state === "error");
         const rejected = isUserRejection(bad?.error) || /reject|denied/i.test(bad?.errorMessage ?? "");
         setPhase({
-          kind: "failed", entryId: id, result, rejected,
+          kind: "failed", entryId: ctx.entryId, result, rejected,
           retryable: true,
           message: rejected ? t("rejected") : `${t("failedAt")}: ${stepLabel(t, bad?.name ?? "?")}${bad?.errorMessage ? ` — ${bad.errorMessage}` : ""}`,
         });
@@ -330,12 +375,16 @@ export function BridgeApp() {
       setBalNonce((n) => n + 1);
     } catch (e) {
       const rejected = isUserRejection(e);
-      setPhase((ph) => ({
-        kind: "failed", entryId: ctx.entryId, rejected,
-        result: ph.kind === "running" ? ph.result : undefined,
+      const anyTx = live.steps.some((s) => !!s.txHash);
+      if (ctx.fresh && !anyTx) removeHistory(ctx.entryId);
+      else persist();
+      const kept = anyTx || !ctx.fresh ? live : undefined;
+      setPhase({
+        kind: "failed", entryId: kept ? ctx.entryId : null, rejected,
+        result: kept,
         retryable: sdk.isRetryableError(e),
         message: rejected ? t("rejected") : sdk.getErrorMessage(e) || String(e),
-      }));
+      });
     } finally {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (kit as any).off("*", handler);
@@ -344,15 +393,31 @@ export function BridgeApp() {
 
   async function startBridge() {
     const params = buildParams();
-    if (!params || !from || !to) return;
-    const snapshot = { from, to, token, amount };
+    if (!params || !from || !to || !srcAddress) return;
+    const base = {
+      state: "pending",
+      provider: token === "USDC" ? "CCTPV2BridgingProvider" : "CCTPXBridgingProvider",
+      amount,
+      token,
+      config: { transferSpeed: fast ? "FAST" : "SLOW" },
+      source: { address: srcAddress, chain: from },
+      destination: {
+        address: recipient,
+        chain: to,
+        ...(showRecipientInput ? { recipientAddress: recipient } : {}),
+        useForwarder: useRelayer,
+      },
+      steps: [],
+    } as unknown as Result;
+    const fromDef = from;
     await run(async (kit) => {
-      if (L(from).type === "evm" && evm) await ensureEvmChain(evm.info.provider, from);
+      if (L(fromDef).type === "evm" && evm) await ensureEvmChain(evm.info.provider, fromDef);
       return (await kit.bridge(params)) as Result;
-    }, { entryId: null, token: snapshot.token, amount: snapshot.amount, from: snapshot.from, to: snapshot.to, network });
+    }, { entryId: crypto.randomUUID(), base, network, createdAt: Date.now(), fresh: true });
   }
 
   async function retryResult(result: Result, entryId: string | null, createdAt?: number, net: Network = network) {
+    if (phase.kind === "running") return;
     const srcType = L(result.source.chain).type;
     const dstType = L(result.destination.chain).type;
     const fromA = srcType === "solana" ? (sol ? solAdapter.current : null) : (evm ? evmAdapter.current : null);
@@ -367,9 +432,8 @@ export function BridgeApp() {
       const ctx = toA ? { from: fromA, to: toA } : { from: fromA };
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       return (await kit.retry(result, ctx as any)) as Result;
-    }, { entryId, token: result.token, amount: result.amount, from: result.source.chain, to: result.destination.chain, network: net, createdAt, initialSteps: result.steps });
+    }, { entryId: entryId ?? crypto.randomUUID(), base: result, network: net, createdAt: createdAt ?? Date.now(), fresh: false });
   }
-
   const reset = () => { setPhase({ kind: "form" }); setAmount(""); setChecked(false); };
 
   const explorerFor = (chainsPair: { from?: ChainDefinition; to?: ChainDefinition }) => (s: Step) => {
@@ -390,6 +454,7 @@ export function BridgeApp() {
     return { name: g.name, chain: c ? L(c).name : String(g.blockchain), val: Number(raw) / 10 ** dec, sym: g.token };
   });
 
+  const running = phase.kind === "running";
   const canBridge = !validation && !!srcAdapter && !!est.data && !est.loading && phase.kind === "form";
   const tokenIsNativeGas = !!from && nativeIsUsdc(from) && token === "USDC";
 
@@ -403,10 +468,10 @@ export function BridgeApp() {
             <h1 className="text-sm font-semibold tracking-tight sm:text-base">{t("appName")}</h1>
           </div>
           <div className="ml-auto flex flex-wrap items-center gap-2">
-            <Seg value={network} options={[["mainnet", t("mainnet")], ["testnet", t("testnet")]]} onChange={(v) => { if (phase.kind !== "running") { setNetwork(v as Network); setPhase({ kind: "form" }); } }} />
+            <Seg value={network} options={[["mainnet", t("mainnet")], ["testnet", t("testnet")]]} disabled={running} onChange={(v) => { if (!running) { setNetwork(v as Network); setPhase({ kind: "form" }); } }} />
             <Seg value={lang} options={[["en", "EN"], ["ru", "RU"]]} onChange={(v) => setLang(v as "en" | "ru")} />
             {evm ? (
-              <ConnectedPill label={evm.info.name} icon={evm.info.icon} address={evm.address} onDisconnect={() => { setEvm(null); evmAdapter.current = null; }} />
+              <ConnectedPill label={evm.info.name} icon={evm.info.icon} address={evm.address} disabled={running} onDisconnect={disconnectEvm} />
             ) : (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -426,7 +491,7 @@ export function BridgeApp() {
               </DropdownMenu>
             )}
             {sol ? (
-              <ConnectedPill label="Solana" address={sol.address} onDisconnect={() => { sol.provider.disconnect?.().catch(() => {}); setSol(null); solAdapter.current = null; }} />
+              <ConnectedPill label="Solana" address={sol.address} disabled={running} onDisconnect={() => { sol.provider.disconnect?.().catch(() => {}); setSol(null); solAdapter.current = null; }} />
             ) : (
               <Button variant="outline" size="sm" onClick={connectSol}><Wallet className="size-4" />{t("connectSol")}</Button>
             )}
@@ -438,7 +503,7 @@ export function BridgeApp() {
       <main className="mx-auto w-full max-w-[480px] flex-1 px-4 py-8">
         <section className="rounded-2xl border bg-card p-4 sm:p-5">
           <div className="mb-4 flex items-center justify-between">
-            <Seg value={token} options={[["USDC", "USDC"], ["EURC", "EURC"]]} onChange={(v) => { if (phase.kind === "form") setToken(v as Token); }} />
+            <Seg value={token} options={[["USDC", "USDC"], ["EURC", "EURC"]]} disabled={phase.kind !== "form"} onChange={(v) => { if (phase.kind === "form") setToken(v as Token); }} />
             <Popover>
               <PopoverTrigger asChild>
                 <button type="button" className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground">
@@ -613,7 +678,7 @@ export function BridgeApp() {
               {phase.result ? <StepList steps={phase.result.steps} explorerFor={explorerFor({ from: phase.result.source.chain, to: phase.result.destination.chain })} /> : null}
               <div className="flex gap-2">
                 {phase.result && phase.result.state !== "success" ? (
-                  <Button className="flex-1" onClick={() => retryResult(phase.result!, phase.entryId)}>{t("retry")}</Button>
+                  <Button className="flex-1" disabled={running} onClick={() => retryResult(phase.result!, phase.entryId)}>{t("retry")}</Button>
                 ) : null}
                 <Button variant="outline" className="flex-1" onClick={reset}>{t("close")}</Button>
               </div>
@@ -631,12 +696,13 @@ export function BridgeApp() {
               {history.map((h) => {
                 const r = h.result;
                 const st = r.state;
+                const inProgress = st === "pending" && r.steps.some((s) => (s.name === "burn" || s.name === "transfer") && !!s.txHash);
                 return (
                   <li key={h.id} className="rounded-xl border bg-card px-3 py-3">
                     <div className="flex items-center gap-2 text-sm">
                       <span className="font-mono">{fmt(r.amount)} {r.token}</span>
                       <span className={`ml-auto rounded-full px-2 py-0.5 text-[11px] ${st === "success" ? "bg-success/15 text-success" : st === "error" ? "bg-destructive/15 text-destructive" : "bg-warning/15 text-warning"}`}>
-                        {t(`status_${st}` as TKey)}
+                        {inProgress ? t("status_inprogress") : t(`status_${st}` as TKey)}
                       </span>
                     </div>
                     <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
@@ -656,7 +722,7 @@ export function BridgeApp() {
                       })}
                     </div>
                     {st !== "success" ? (
-                      <Button size="sm" variant="outline" className="mt-2" disabled={phase.kind === "running"} onClick={() => retryResult(r, h.id, h.createdAt, h.network)}>
+                      <Button size="sm" variant="outline" className="mt-2" disabled={running} onClick={() => retryResult(r, h.id, h.createdAt, h.network)}>
                         {t("resume")}
                       </Button>
                     ) : null}
@@ -756,12 +822,12 @@ function EstimateView({ feeRows, feeLabel, gasRows, receive, token, t }: {
   );
 }
 
-function Seg({ value, options, onChange }: { value: string; options: [string, string][]; onChange: (v: string) => void }) {
+function Seg({ value, options, onChange, disabled = false }: { value: string; options: [string, string][]; onChange: (v: string) => void; disabled?: boolean }) {
   return (
     <div className="inline-flex rounded-lg border bg-surface p-0.5" role="group">
       {options.map(([v, label]) => (
-        <button key={v} type="button" aria-pressed={value === v} onClick={() => onChange(v)}
-          className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${value === v ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>
+        <button key={v} type="button" aria-pressed={value === v} disabled={disabled} onClick={() => onChange(v)}
+          className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${value === v ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>
           {label}
         </button>
       ))}
@@ -769,14 +835,14 @@ function Seg({ value, options, onChange }: { value: string; options: [string, st
   );
 }
 
-function ConnectedPill({ label, icon, address, onDisconnect }: { label: string; icon?: string | undefined; address: string; onDisconnect: () => void }) {
+function ConnectedPill({ label, icon, address, onDisconnect, disabled = false }: { label: string; icon?: string | undefined; address: string; onDisconnect: () => void; disabled?: boolean }) {
   const { t } = useT();
   return (
     <div className="inline-flex items-center gap-1.5 rounded-lg border bg-surface py-1 pl-2 pr-1 text-xs">
       {icon ? <img src={icon} alt="" className="size-4 rounded" /> : <span className="text-muted-foreground">{label}</span>}
       <span className="font-mono">{shortAddr(address)}</span>
       <CopyButton text={address} />
-      <button type="button" onClick={onDisconnect} aria-label={t("disconnect")} title={t("disconnect")} className="inline-flex size-6 items-center justify-center rounded text-muted-foreground hover:text-destructive">
+      <button type="button" onClick={onDisconnect} disabled={disabled} aria-label={t("disconnect")} title={t("disconnect")} className="inline-flex size-6 items-center justify-center rounded text-muted-foreground hover:text-destructive disabled:pointer-events-none disabled:opacity-40">
         <LogOut className="size-3.5" />
       </button>
     </div>
